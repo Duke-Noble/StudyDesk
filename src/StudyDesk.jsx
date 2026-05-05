@@ -1,0 +1,1204 @@
+// src/StudyDesk.jsx
+// ─────────────────────────────────────────────────────────────────────────────
+//  StudyDesk — Personal Student Planner
+//  All data is stored in Supabase; Row Level Security scopes every
+//  query to the signed-in user automatically.
+//
+//  Props:
+//    session   – Supabase Session (from onAuthStateChange in main.jsx)
+//    onSignOut – callback that signs the user out
+// ─────────────────────────────────────────────────────────────────────────────
+import { useState, useEffect, useRef, useCallback } from "react";
+import { supabase } from "./supabaseClient";
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   GLOBAL CSS
+───────────────────────────────────────────────────────────────────────────── */
+const G = `
+  @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Lora:ital,wght@0,600;1,400&display=swap');
+  *, *::before, *::after { box-sizing: border-box; margin:0; padding:0; }
+  html, body, #root { height:100%; }
+  body { font-family:'Plus Jakarta Sans',sans-serif; background:#F0F4F8; color:#1a2332; }
+  ::-webkit-scrollbar{width:5px;height:5px;}
+  ::-webkit-scrollbar-thumb{background:#CBD5E1;border-radius:99px;}
+  input,select,textarea,button{font-family:inherit;}
+  [contenteditable]:empty:before{content:attr(data-placeholder);color:#94a3b8;pointer-events:none;}
+  .fi{animation:fi .28s ease;}
+  @keyframes fi{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:translateY(0)}}
+  .hl{transition:transform .18s,box-shadow .18s;}
+  .hl:hover{transform:translateY(-2px);box-shadow:0 8px 22px rgba(0,0,0,.09);}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .sp{animation:spin .75s linear infinite;}
+  @keyframes shim{0%{background-position:100% 0}100%{background-position:-100% 0}}
+`;
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   DESIGN TOKENS
+───────────────────────────────────────────────────────────────────────────── */
+const PAL = {
+  Blue:   {bg:"#EFF6FF",border:"#BFDBFE",accent:"#3B82F6",text:"#1D4ED8",dot:"#93C5FD",soft:"#DBEAFE"},
+  Green:  {bg:"#F0FDF4",border:"#BBF7D0",accent:"#22C55E",text:"#15803D",dot:"#86EFAC",soft:"#DCFCE7"},
+  Purple: {bg:"#FAF5FF",border:"#E9D5FF",accent:"#A855F7",text:"#7E22CE",dot:"#D8B4FE",soft:"#F3E8FF"},
+  Pink:   {bg:"#FDF2F8",border:"#FBCFE8",accent:"#EC4899",text:"#9D174D",dot:"#F9A8D4",soft:"#FCE7F3"},
+  Orange: {bg:"#FFF7ED",border:"#FED7AA",accent:"#F97316",text:"#C2410C",dot:"#FDBA74",soft:"#FFEDD5"},
+};
+const COLORS = ["Blue","Green","Purple","Pink","Orange"];
+
+const PRIO_C = {High:{c:"#EF4444",b:"#FEF2F2"},Medium:{c:"#F59E0B",b:"#FFFBEB"},Low:{c:"#22C55E",b:"#F0FDF4"}};
+const STAT_C = {
+  Pending:{c:"#F59E0B",b:"#FFFBEB"},Done:{c:"#22C55E",b:"#F0FDF4"},
+  "Not Started":{c:"#94A3B8",b:"#F8FAFC"},"In Progress":{c:"#3B82F6",b:"#EFF6FF"},
+  Submitted:{c:"#8B5CF6",b:"#FAF5FF"},Graded:{c:"#22C55E",b:"#F0FDF4"},
+  Upcoming:{c:"#3B82F6",b:"#EFF6FF"},Completed:{c:"#22C55E",b:"#F0FDF4"},
+};
+
+// Timetable: 30-min slots 06:30 → 21:30
+const TT_START = 6.5;   // 06:30
+const TT_END   = 21.5;  // 21:30
+const TT_DAYS  = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
+const TT_SLOTS = [];
+for (let h = TT_START; h < TT_END; h += 0.5) {
+  const hh = Math.floor(h);
+  const mm = h % 1 === 0 ? "00" : "30";
+  TT_SLOTS.push(`${String(hh).padStart(2,"0")}:${mm}`);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   UTILS
+───────────────────────────────────────────────────────────────────────────── */
+const NOW      = ()    => new Date();
+const isOD     = d     => d && new Date(d) < NOW();
+const isSoon   = (d,days=7) => { if(!d)return false; const t=new Date(d); return t>=NOW()&&t<=new Date(+NOW()+days*864e5); };
+const fmtDate  = d     => d?new Date(d).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}):"—";
+const fmtDT    = d     => d?new Date(d).toLocaleString("en-GB",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}):"—";
+const fmtTime  = d     => d?new Date(d).toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"}):"";
+const toInpDT  = d     => { if(!d)return""; return new Date(d).toISOString().slice(0,16); };
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   SUPABASE DATA LAYER  (RLS auto-filters by auth.uid())
+───────────────────────────────────────────────────────────────────────────── */
+function useTable(table, orderCol="created_at") {
+  const [rows,    setRows]    = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const { data } = await supabase.from(table).select("*").order(orderCol, { ascending:true });
+    setRows(data || []);
+    setLoading(false);
+  }, [table, orderCol]);
+
+  useEffect(() => { load(); }, [load]);
+  return { rows, loading, reload: load };
+}
+
+const db = {
+  ins: async (t, p)    => { const {data,error}=await supabase.from(t).insert(p).select().single(); if(error)throw error; return data; },
+  upd: async (t, id,p) => { const {data,error}=await supabase.from(t).update(p).eq("id",id).select().single(); if(error)throw error; return data; },
+  del: async (t, id)   => { const {error}=await supabase.from(t).delete().eq("id",id); if(error)throw error; },
+};
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   ICON  (inline SVG via path lookup)
+───────────────────────────────────────────────────────────────────────────── */
+const IC = {
+  home:"M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6",
+  book:"M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253",
+  note:"M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z",
+  cal:"M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z",
+  tbl:"M3 10h18M3 14h18M10 4v16M3 4h18a1 1 0 011 1v14a1 1 0 01-1 1H3a1 1 0 01-1-1V5a1 1 0 011-1z",
+  user:"M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z",
+  plus:"M12 4v16m8-8H4",
+  edit:"M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z",
+  trash:"M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16",
+  cL:"M15 19l-7-7 7-7", cR:"M9 5l7 7-7 7",
+  x:"M6 18L18 6M6 6l12 12", ok:"M5 13l4 4L19 7",
+  alert:"M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z",
+  clock:"M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z",
+  srch:"M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z",
+  star:"M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z",
+  doc:"M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z",
+  out:"M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1",
+};
+function Ic({n,size=16,style={}}) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" style={style}>
+      <path d={IC[n]||IC.home}/>
+    </svg>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   ATOMS
+───────────────────────────────────────────────────────────────────────────── */
+function Pill({children,color="#64748B",bg="#F1F5F9",border,style={}}) {
+  return <span style={{display:"inline-flex",alignItems:"center",padding:"2px 10px",borderRadius:99,fontSize:11,fontWeight:700,color,background:bg,border:border?`1px solid ${border}`:undefined,...style}}>{children}</span>;
+}
+function PPill({p}){const c=PRIO_C[p]||PRIO_C.Medium;return <Pill color={c.c} bg={c.b}>{p}</Pill>;}
+function SPill({s}){const c=STAT_C[s]||{c:"#64748B",b:"#F1F5F9"};return <Pill color={c.c} bg={c.b}>{s}</Pill>;}
+function CPill({course}){
+  if(!course)return null;
+  const col=PAL[course.color_tag]||PAL.Blue;
+  return <Pill color={col.text} bg={col.soft} border={col.border}>{course.course_code}</Pill>;
+}
+function OD(){return <span style={{fontSize:10,fontWeight:800,padding:"2px 7px",borderRadius:99,background:"#FEE2E2",color:"#DC2626",border:"1px solid #FECACA"}}>OVERDUE</span>;}
+
+function Btn({children,variant="primary",size="md",onClick,disabled,style={},type="button",loading}){
+  const base={display:"inline-flex",alignItems:"center",gap:6,border:"none",borderRadius:10,cursor:disabled||loading?"not-allowed":"pointer",fontWeight:600,fontFamily:"inherit",transition:"all .18s",opacity:disabled||loading?.55:1,fontSize:size==="sm"?12:size==="lg"?15:13,padding:size==="sm"?"5px 12px":size==="lg"?"12px 24px":"8px 18px"};
+  const V={primary:{background:"#1E3A5F",color:"#fff",boxShadow:"0 2px 8px rgba(30,58,95,.25)"},secondary:{background:"#F1F5F9",color:"#1E3A5F",border:"1px solid #E2E8F0"},danger:{background:"#FEF2F2",color:"#DC2626",border:"1px solid #FECACA"},ghost:{background:"transparent",color:"#64748B"}};
+  return (
+    <button type={type} onClick={onClick} disabled={disabled||loading} style={{...base,...(V[variant]||V.primary),...style}}
+      onMouseEnter={e=>{if(!disabled&&!loading)e.currentTarget.style.filter="brightness(.92)";}}
+      onMouseLeave={e=>{e.currentTarget.style.filter="";}}>
+      {loading&&<svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} className="sp"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" strokeLinecap="round"/></svg>}
+      {children}
+    </button>
+  );
+}
+
+function Inp({label,type="text",value,onChange,placeholder,required,min,max,style={}}){
+  const [f,sF]=useState(false);
+  return (
+    <div style={{marginBottom:12}}>
+      {label&&<label style={{fontSize:11,fontWeight:700,color:"#64748B",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:".05em"}}>{label}{required&&<span style={{color:"#EF4444"}}> *</span>}</label>}
+      <input type={type} value={value??""} onChange={onChange} placeholder={placeholder} min={min} max={max}
+        onFocus={()=>sF(true)} onBlur={()=>sF(false)}
+        style={{width:"100%",padding:"9px 12px",borderRadius:9,border:`1.5px solid ${f?"#3B82F6":"#E2E8F0"}`,fontSize:13,color:"#1a2332",background:"#fff",outline:"none",fontFamily:"inherit",transition:"border .15s",...style}}/>
+    </div>
+  );
+}
+function Sel({label,value,onChange,options,required}){
+  return (
+    <div style={{marginBottom:12}}>
+      {label&&<label style={{fontSize:11,fontWeight:700,color:"#64748B",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:".05em"}}>{label}{required&&<span style={{color:"#EF4444"}}> *</span>}</label>}
+      <select value={value??""} onChange={onChange} style={{width:"100%",padding:"9px 12px",borderRadius:9,border:"1.5px solid #E2E8F0",fontSize:13,color:"#1a2332",background:"#fff",outline:"none",fontFamily:"inherit",cursor:"pointer"}}>
+        {options.map(o=>typeof o==="string"?<option key={o} value={o}>{o}</option>:<option key={o.v} value={o.v}>{o.l}</option>)}
+      </select>
+    </div>
+  );
+}
+function TA({label,value,onChange,placeholder,rows=3}){
+  return (
+    <div style={{marginBottom:12}}>
+      {label&&<label style={{fontSize:11,fontWeight:700,color:"#64748B",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:".05em"}}>{label}</label>}
+      <textarea value={value??""} onChange={onChange} placeholder={placeholder} rows={rows}
+        style={{width:"100%",padding:"9px 12px",borderRadius:9,border:"1.5px solid #E2E8F0",fontSize:13,color:"#1a2332",background:"#fff",outline:"none",fontFamily:"inherit",resize:"vertical"}}/>
+    </div>
+  );
+}
+function Err({msg}){
+  return msg?<div style={{padding:"10px 14px",borderRadius:9,background:"#FEF2F2",border:"1px solid #FECACA",color:"#DC2626",fontSize:13,marginBottom:12}}>{msg}</div>:null;
+}
+function Modal({title,onClose,children,wide=false}){
+  useEffect(()=>{const h=e=>{if(e.key==="Escape")onClose();};window.addEventListener("keydown",h);return()=>window.removeEventListener("keydown",h);},[onClose]);
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(15,23,42,.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,padding:16,backdropFilter:"blur(4px)"}}
+      onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
+      <div className="fi" style={{background:"#fff",borderRadius:18,width:wide?"min(720px,96vw)":"min(540px,96vw)",maxHeight:"92vh",overflowY:"auto",boxShadow:"0 32px 80px rgba(0,0,0,.20)"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"20px 24px 0"}}>
+          <h2 style={{fontSize:18,fontWeight:800,color:"#1a2332"}}>{title}</h2>
+          <Btn variant="ghost" onClick={onClose} style={{padding:6,borderRadius:8}}><Ic n="x" size={18}/></Btn>
+        </div>
+        <div style={{padding:"16px 24px 24px"}}>{children}</div>
+      </div>
+    </div>
+  );
+}
+function Empty({icon="note",title,sub,action,onAction}){
+  return (
+    <div style={{textAlign:"center",padding:"52px 24px",color:"#94A3B8"}}>
+      <div style={{width:60,height:60,borderRadius:18,background:"#F1F5F9",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 14px"}}><Ic n={icon} size={26}/></div>
+      <div style={{fontSize:15,fontWeight:700,color:"#64748B",marginBottom:4}}>{title}</div>
+      {sub&&<div style={{fontSize:13,marginBottom:16}}>{sub}</div>}
+      {action&&<Btn onClick={onAction}><Ic n="plus" size={14}/> {action}</Btn>}
+    </div>
+  );
+}
+function ColorPicker({value,onChange}){
+  return (
+    <div style={{marginBottom:14}}>
+      <label style={{fontSize:11,fontWeight:700,color:"#64748B",display:"block",marginBottom:8,textTransform:"uppercase",letterSpacing:".05em"}}>Color Tag</label>
+      <div style={{display:"flex",gap:10}}>
+        {COLORS.map(c=>{const col=PAL[c];return(
+          <button key={c} type="button" onClick={()=>onChange(c)}
+            style={{width:34,height:34,borderRadius:"50%",background:col.accent,border:value===c?"3px solid #1E3A5F":"3px solid transparent",cursor:"pointer",boxShadow:value===c?`0 0 0 2px #fff inset,0 0 0 4px ${col.accent}`:"none",transition:"all .15s"}} title={c}/>
+        );})}
+      </div>
+    </div>
+  );
+}
+function StatCard({icon,label,value,accent="#3B82F6",sub}){
+  return (
+    <div className="hl" style={{background:"#fff",borderRadius:16,padding:"20px",border:"1px solid #E8EDF5",display:"flex",alignItems:"flex-start",gap:14}}>
+      <div style={{width:46,height:46,borderRadius:13,background:accent+"18",display:"flex",alignItems:"center",justifyContent:"center",color:accent,flexShrink:0}}><Ic n={icon} size={22}/></div>
+      <div>
+        <div style={{fontSize:28,fontWeight:800,color:"#1a2332",lineHeight:1}}>{value}</div>
+        <div style={{fontSize:12,color:"#64748B",marginTop:4,fontWeight:500}}>{label}</div>
+        {sub&&<div style={{fontSize:11,color:accent,fontWeight:700,marginTop:2}}>{sub}</div>}
+      </div>
+    </div>
+  );
+}
+function RichEd({value,onChange,placeholder="Write your notes here..."}){
+  const ref=useRef(); const init=useRef(false);
+  useEffect(()=>{if(!init.current&&ref.current){ref.current.innerHTML=value||"";init.current=true;}},[]);
+  const cmd=(c,v)=>{document.execCommand(c,false,v||null);ref.current.focus();onChange(ref.current.innerHTML);};
+  const tools=[{l:"B",c:()=>cmd("bold"),s:{fontWeight:800}},{l:"I",c:()=>cmd("italic"),s:{fontStyle:"italic"}},{l:"U",c:()=>cmd("underline"),s:{textDecoration:"underline"}},{l:"H1",c:()=>cmd("formatBlock","h2"),s:{fontWeight:800,fontSize:11}},{l:"H2",c:()=>cmd("formatBlock","h3"),s:{fontWeight:800,fontSize:10}},{l:"•",c:()=>cmd("insertUnorderedList"),s:{fontSize:18,lineHeight:"1"}},{l:"1.",c:()=>cmd("insertOrderedList"),s:{fontSize:11}},{l:"—",c:()=>{cmd("removeFormat");cmd("formatBlock","p");},s:{color:"#94a3b8"}}];
+  return (
+    <div style={{border:"1.5px solid #E2E8F0",borderRadius:10,overflow:"hidden"}}>
+      <div style={{display:"flex",gap:2,padding:"6px 8px",background:"#F8FAFC",borderBottom:"1px solid #E2E8F0",flexWrap:"wrap"}}>
+        {tools.map(t=><button key={t.l} onMouseDown={e=>{e.preventDefault();t.c();}} style={{...t.s,minWidth:28,height:28,border:"1px solid #E2E8F0",borderRadius:6,cursor:"pointer",background:"#fff",color:"#374151",padding:"0 4px"}}>{t.l}</button>)}
+      </div>
+      <div ref={ref} contentEditable suppressContentEditableWarning data-placeholder={placeholder}
+        onInput={e=>onChange(e.currentTarget.innerHTML)}
+        style={{padding:"12px 14px",minHeight:160,outline:"none",fontSize:14,lineHeight:1.7,color:"#1a2332"}}/>
+    </div>
+  );
+}
+function Skeleton(){
+  return <div style={{display:"flex",flexDirection:"column",gap:12,padding:"24px 0"}}>
+    {[1,2,3].map(i=><div key={i} style={{height:72,borderRadius:12,background:"linear-gradient(90deg,#F1F5F9 25%,#E2E8F0 50%,#F1F5F9 75%)",backgroundSize:"400% 100%",animation:"shim 1.5s infinite"}}/>)}
+  </div>;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   DASHBOARD
+───────────────────────────────────────────────────────────────────────────── */
+function Dashboard({courses,deadlines,quizzes,assessments,assignments,notes,user,onNav}){
+  const d=NOW();
+  const upcoming=[
+    ...deadlines.filter(x=>x.status!=="Done"&&isSoon(x.due_date)).map(x=>({...x,_t:"Deadline",_d:x.due_date,_c:"#EF4444"})),
+    ...assignments.filter(x=>x.status!=="Submitted"&&x.status!=="Graded"&&isSoon(x.due_date)).map(x=>({...x,_t:"Assignment",_d:x.due_date,_c:"#F97316"})),
+    ...quizzes.filter(x=>x.status!=="Completed"&&isSoon(x.date_time)).map(x=>({...x,_t:"Quiz",_d:x.date_time,_c:"#8B5CF6"})),
+    ...assessments.filter(x=>x.status!=="Graded"&&x.status!=="Submitted"&&isSoon(x.due_date)).map(x=>({...x,_t:"Assessment",_d:x.due_date,_c:"#3B82F6"})),
+  ].sort((a,b)=>new Date(a._d)-new Date(b._d));
+  const overdue=[
+    ...deadlines.filter(x=>x.status!=="Done"&&isOD(x.due_date)),
+    ...assignments.filter(x=>x.status!=="Submitted"&&x.status!=="Graded"&&isOD(x.due_date)),
+    ...assessments.filter(x=>x.status!=="Graded"&&x.status!=="Submitted"&&isOD(x.due_date)),
+  ];
+  const gc=id=>courses.find(c=>c.id===id);
+  const todayName=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"][d.getDay()];
+  const todayCourses=courses.filter(c=>c.schedule&&c.schedule.toLowerCase().includes(todayName.toLowerCase()));
+
+  // greeting uses student_id from user_metadata
+  const meta=user?.user_metadata||{};
+  const greeting = meta.first_name
+    ? `${meta.first_name}${meta.last_name?" "+meta.last_name:""}`
+    : meta.student_id || user?.email?.split("@")[0] || "Student";
+
+  return (
+    <div className="fi">
+      <div style={{marginBottom:28}}>
+        <div style={{fontSize:13,color:"#64748B",fontWeight:500,marginBottom:4}}>{d.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}</div>
+        <h1 style={{fontSize:28,fontWeight:800,color:"#1a2332"}}>
+          Good {d.getHours()<12?"morning":d.getHours()<17?"afternoon":"evening"}, {greeting} 👋
+        </h1>
+        {meta.student_id&&<p style={{fontSize:13,color:"#64748B",marginTop:6}}>{meta.student_id} · B.Ed Government · 2025/2026 Semester 2</p>}
+      </div>
+
+      {/* Stats */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:28}}>
+        <StatCard icon="doc"   label="Pending Tasks"    value={assignments.filter(a=>a.status==="Not Started"||a.status==="In Progress").length} accent="#F97316"/>
+        <StatCard icon="clock" label="Due This Week"    value={upcoming.length}                                                                    accent="#3B82F6"/>
+        <StatCard icon="star"  label="Upcoming Quizzes" value={quizzes.filter(q=>q.status==="Upcoming").length}                                    accent="#8B5CF6"/>
+        <StatCard icon="alert" label="Overdue"          value={overdue.length} accent="#EF4444" sub={overdue.length>0?"Needs attention!":"All clear ✓"}/>
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"2fr 1fr",gap:20}}>
+        {/* Upcoming */}
+        <div style={{background:"#fff",borderRadius:16,border:"1px solid #E8EDF5",padding:"20px"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+            <h2 style={{fontSize:15,fontWeight:800,color:"#1a2332"}}>📅 Next 7 Days</h2>
+            <Btn variant="ghost" size="sm" onClick={()=>onNav("calendar")}><Ic n="cR" size={14}/>Calendar</Btn>
+          </div>
+          {upcoming.length===0?<Empty icon="cal" title="Nothing due this week" sub="You're all caught up!"/>:
+            upcoming.map(item=>{
+              const c=gc(item.course_id);const col=c?PAL[c.color_tag]:PAL.Blue;const od=isOD(item._d);
+              return(
+                <div key={item.id} style={{display:"flex",gap:10,padding:"10px 12px",borderRadius:11,marginBottom:7,background:od?"#FEF2F2":col.bg,border:`1px solid ${od?"#FECACA":col.border}`,alignItems:"flex-start"}}>
+                  <div style={{width:4,borderRadius:2,alignSelf:"stretch",background:item._c,minHeight:36,flexShrink:0}}/>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontWeight:700,fontSize:13,color:"#1a2332",marginBottom:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.title}</div>
+                    <div style={{fontSize:11,color:"#64748B",display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+                      {c&&<CPill course={c}/>}<span style={{color:item._c,fontWeight:600}}>{item._t}</span>
+                      <span>· {fmtDT(item._d)}</span>{od&&<OD/>}
+                    </div>
+                  </div>
+                  {item.priority&&<PPill p={item.priority}/>}
+                </div>
+              );
+            })
+          }
+        </div>
+
+        {/* Right col */}
+        <div style={{display:"flex",flexDirection:"column",gap:16}}>
+          <div style={{background:"linear-gradient(135deg,#1E3A5F,#2563EB)",borderRadius:16,padding:"20px",color:"#fff"}}>
+            <div style={{fontSize:13,fontWeight:700,opacity:.8,marginBottom:10}}>TODAY · {todayName.toUpperCase()}</div>
+            {todayCourses.length===0?<div style={{fontSize:13,opacity:.7,fontStyle:"italic"}}>No classes today</div>:
+              todayCourses.map(c=>(
+                <div key={c.id} style={{display:"flex",gap:10,marginBottom:8,alignItems:"center"}}>
+                  <div style={{width:8,height:8,borderRadius:"50%",background:PAL[c.color_tag].dot,flexShrink:0}}/>
+                  <div><div style={{fontSize:13,fontWeight:700}}>{c.course_code}</div><div style={{fontSize:11,opacity:.75}}>{c.schedule}{c.room&&` · ${c.room}`}</div></div>
+                </div>
+              ))
+            }
+          </div>
+          <div style={{background:"#fff",borderRadius:16,border:"1px solid #E8EDF5",padding:"20px",flex:1}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+              <h2 style={{fontSize:14,fontWeight:800,color:"#1a2332"}}>📝 Recent Notes</h2>
+              <Btn variant="ghost" size="sm" onClick={()=>onNav("notes")}><Ic n="cR" size={12}/></Btn>
+            </div>
+            {notes.length===0?<div style={{fontSize:12,color:"#94A3B8"}}>No notes yet</div>:
+              [...notes].sort((a,b)=>new Date(b.updated_at)-new Date(a.updated_at)).slice(0,5).map(note=>{
+                const c=gc(note.course_id);const col=c?PAL[c.color_tag]:PAL.Blue;
+                return(
+                  <div key={note.id} style={{padding:"8px 10px",borderRadius:9,marginBottom:6,background:col.bg,border:`1px solid ${col.border}`}}>
+                    <div style={{fontSize:12,fontWeight:700,color:"#1a2332",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{note.title}</div>
+                    {c&&<div style={{fontSize:10,color:col.text,marginTop:1}}>{c.course_code}</div>}
+                  </div>
+                );
+              })
+            }
+          </div>
+        </div>
+      </div>
+
+      {/* Course mini-grid */}
+      {courses.length>0&&(
+        <div style={{marginTop:24}}>
+          <h2 style={{fontSize:15,fontWeight:800,color:"#1a2332",marginBottom:14}}>📚 My Courses</h2>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
+            {courses.map(c=>{const col=PAL[c.color_tag];return(
+              <div key={c.id} className="hl" onClick={()=>onNav("courses")} style={{background:col.bg,border:`1px solid ${col.border}`,borderRadius:13,padding:"14px",cursor:"pointer"}}>
+                <div style={{width:10,height:10,borderRadius:"50%",background:col.accent,marginBottom:8}}/>
+                <div style={{fontSize:13,fontWeight:800,color:"#1a2332"}}>{c.course_code}</div>
+                <div style={{fontSize:11,color:"#64748B",marginTop:2,lineHeight:1.4,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{c.course_name}</div>
+              </div>
+            );})}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   COURSES PAGE  (no pre-seeding — user adds their own)
+───────────────────────────────────────────────────────────────────────────── */
+function CoursesPage({courses,reload,onSelect}){
+  const [modal,setModal]=useState(null);
+  const [form,setForm]=useState({});
+  const [saving,setSaving]=useState(false);
+  const [err,setErr]=useState("");
+  const f=k=>e=>setForm(p=>({...p,[k]:e.target.value}));
+
+  const save=async()=>{
+    if(!form.course_code||!form.course_name){setErr("Course code and name are required.");return;}
+    setSaving(true);setErr("");
+    try{
+      const p={course_code:form.course_code,course_name:form.course_name,instructor_name:form.instructor_name||null,instructor_email:form.instructor_email||null,room:form.room||null,schedule:form.schedule||null,color_tag:form.color_tag||"Blue"};
+      if(modal==="add")await db.ins("courses",p);else await db.upd("courses",form.id,p);
+      await reload();setModal(null);
+    }catch(e){setErr(e.message);}
+    setSaving(false);
+  };
+
+  const del=async c=>{
+    if(!confirm(`Delete "${c.course_code}"? All related notes, deadlines, quizzes, assessments and assignments will also be deleted.`))return;
+    try{
+      for(const t of["notes","deadlines","quizzes","assessments","assignments"])
+        await supabase.from(t).delete().eq("course_id",c.id);
+      await db.del("courses",c.id);
+      await reload();
+    }catch(e){alert(e.message);}
+  };
+
+  return(
+    <div className="fi">
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:24}}>
+        <div>
+          <h1 style={{fontSize:24,fontWeight:800,color:"#1a2332"}}>My Courses</h1>
+          <p style={{fontSize:13,color:"#64748B"}}>2025/2026 Second Semester · Add and manage your courses below</p>
+        </div>
+        <Btn onClick={()=>{setForm({color_tag:"Blue"});setModal("add");setErr("");}} disabled={courses.length>=8}>
+          <Ic n="plus" size={14}/> Add Course
+        </Btn>
+      </div>
+
+      {courses.length===0?(
+        <Empty icon="book" title="No courses yet"
+          sub="Click '+ Add Course' to add your first course. You can add up to 8 courses."
+          action="Add Course" onAction={()=>{setForm({color_tag:"Blue"});setModal("add");}}/>
+      ):(
+        <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:16}}>
+          {courses.map(c=>{const col=PAL[c.color_tag];return(
+            <div key={c.id} className="hl" style={{background:"#fff",borderRadius:16,border:`1.5px solid ${col.border}`,overflow:"hidden"}}>
+              <div style={{height:5,background:col.accent}}/>
+              <div style={{padding:"18px 20px"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                  <div style={{flex:1,cursor:"pointer"}} onClick={()=>onSelect(c)}>
+                    <div style={{marginBottom:8}}><span style={{fontSize:12,fontWeight:800,padding:"3px 10px",borderRadius:99,background:col.soft,color:col.text,border:`1px solid ${col.border}`}}>{c.course_code}</span></div>
+                    <div style={{fontSize:15,fontWeight:800,color:"#1a2332",lineHeight:1.4,marginBottom:10}}>{c.course_name}</div>
+                    <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                      {c.instructor_name&&<div style={{fontSize:12,color:"#64748B"}}>👤 {c.instructor_name}</div>}
+                      {c.schedule&&<div style={{fontSize:12,color:"#64748B"}}>🕐 {c.schedule}</div>}
+                      {c.room&&<div style={{fontSize:12,color:"#64748B"}}>📍 {c.room}</div>}
+                      {!c.instructor_name&&!c.schedule&&!c.room&&<div style={{fontSize:12,color:"#94A3B8",fontStyle:"italic"}}>Click Edit to fill in course details</div>}
+                    </div>
+                  </div>
+                  <div style={{display:"flex",gap:6}}>
+                    <Btn variant="secondary" size="sm" onClick={()=>{setForm({...c});setModal("edit");setErr("");}}><Ic n="edit" size={12}/></Btn>
+                    <Btn variant="danger" size="sm" onClick={()=>del(c)}><Ic n="trash" size={12}/></Btn>
+                  </div>
+                </div>
+                <div style={{marginTop:12,paddingTop:12,borderTop:`1px solid ${col.border}`}}>
+                  <Btn variant="secondary" size="sm" onClick={()=>onSelect(c)} style={{width:"100%",justifyContent:"center",background:col.soft,color:col.text,border:`1px solid ${col.border}`}}>
+                    View Details <Ic n="cR" size={12}/>
+                  </Btn>
+                </div>
+              </div>
+            </div>
+          );})}
+        </div>
+      )}
+
+      {modal&&(
+        <Modal title={modal==="add"?"Add Course":"Edit Course"} onClose={()=>setModal(null)} wide>
+          <Err msg={err}/>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 16px"}}>
+            <Inp label="Course Code"     value={form.course_code||""}     onChange={f("course_code")}     placeholder="e.g. EGS102"         required/>
+            <Inp label="Course Name"     value={form.course_name||""}     onChange={f("course_name")}     placeholder="Full course name"     required/>
+            <Inp label="Instructor Name" value={form.instructor_name||""} onChange={f("instructor_name")} placeholder="Dr. / Mr. / Ms."/>
+            <Inp label="Instructor Email" type="email" value={form.instructor_email||""} onChange={f("instructor_email")} placeholder="lecturer@ucc.edu.gh"/>
+            <Inp label="Room / Location" value={form.room||""}     onChange={f("room")}     placeholder="e.g. Lecture Hall B"/>
+            <Inp label="Schedule"        value={form.schedule||""} onChange={f("schedule")} placeholder="e.g. Mon & Wed 9–11am"/>
+          </div>
+          <ColorPicker value={form.color_tag||"Blue"} onChange={v=>setForm(p=>({...p,color_tag:v}))}/>
+          <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:8}}>
+            <Btn variant="secondary" onClick={()=>setModal(null)}>Cancel</Btn>
+            <Btn onClick={save} loading={saving}><Ic n="ok" size={14}/> Save Course</Btn>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   COURSE DETAIL
+───────────────────────────────────────────────────────────────────────────── */
+function CourseDetail({course,notes,deadlines,quizzes,assessments,assignments,reloadAll,onBack}){
+  const [tab,setTab]=useState("notes");
+  const [modal,setModal]=useState(null);
+  const [form,setForm]=useState({});
+  const [saving,setSaving]=useState(false);
+  const [err,setErr]=useState("");
+  const col=PAL[course.color_tag]||PAL.Blue;
+  const f=k=>e=>setForm(p=>({...p,[k]:e.target.value}));
+
+  const cN=notes.filter(n=>n.course_id===course.id);
+  const cD=deadlines.filter(d=>d.course_id===course.id);
+  const cQ=quizzes.filter(q=>q.course_id===course.id);
+  const cA=assessments.filter(a=>a.course_id===course.id);
+  const cX=assignments.filter(a=>a.course_id===course.id);
+
+  const TBL={note:"notes",deadline:"deadlines",quiz:"quizzes",assessment:"assessments",assignment:"assignments"};
+  const open=(type,item)=>{setModal({type,mode:item?"edit":"add",item});setForm(item?{...item}:{});setErr("");};
+  const close=()=>setModal(null);
+
+  const save=async()=>{
+    if(!form.title){setErr("Title is required.");return;}
+    setSaving(true);setErr("");
+    try{
+      let p={...form,course_id:course.id};
+      delete p.id;delete p.created_at;delete p.updated_at;delete p.user_id;
+      if(modal.mode==="add")await db.ins(TBL[modal.type],p);
+      else await db.upd(TBL[modal.type],modal.item.id,p);
+      await reloadAll();close();
+    }catch(e){setErr(e.message);}
+    setSaving(false);
+  };
+
+  const del=async(type,id)=>{
+    if(!confirm("Delete this item?"))return;
+    try{await db.del(TBL[type],id);await reloadAll();}catch(e){alert(e.message);}
+  };
+
+  const Row=({item,type,meta})=>{
+    const od=isOD(item.due_date||item.date_time);
+    return(
+      <div style={{display:"flex",gap:12,padding:"12px 14px",borderRadius:11,marginBottom:8,background:od?"#FEF2F2":"#F8FAFC",border:`1px solid ${od?"#FECACA":"#E8EDF5"}`,alignItems:"center"}}>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontWeight:700,fontSize:14,color:"#1a2332",marginBottom:4,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>{item.title}{od&&<OD/>}</div>
+          <div style={{fontSize:11,color:"#64748B",display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>{meta}</div>
+        </div>
+        <div style={{display:"flex",gap:6}}>
+          <Btn variant="secondary" size="sm" onClick={()=>open(type,item)}><Ic n="edit" size={12}/></Btn>
+          <Btn variant="danger"    size="sm" onClick={()=>del(type,item.id)}><Ic n="trash" size={12}/></Btn>
+        </div>
+      </div>
+    );
+  };
+
+  const TABS=[
+    {k:"notes",       l:`📝 Notes (${cN.length})`},
+    {k:"deadlines",   l:`⏰ Deadlines (${cD.length})`},
+    {k:"quizzes",     l:`📋 Quizzes (${cQ.length})`},
+    {k:"assessments", l:`🏆 Assessments (${cA.length})`},
+    {k:"assignments", l:`📌 Assignments (${cX.length})`},
+  ];
+
+  return(
+    <div className="fi">
+      <button onClick={onBack} style={{display:"flex",alignItems:"center",gap:6,background:"none",border:"none",cursor:"pointer",color:"#64748B",fontSize:13,fontWeight:600,marginBottom:16,padding:0}}>
+        <Ic n="cL" size={14}/> Back to Courses
+      </button>
+
+      {/* Header */}
+      <div style={{background:"#fff",borderRadius:18,border:`1.5px solid ${col.border}`,overflow:"hidden",marginBottom:24}}>
+        <div style={{height:6,background:`linear-gradient(90deg,${col.accent},${col.dot})`}}/>
+        <div style={{padding:"22px 24px"}}>
+          <span style={{fontSize:12,fontWeight:800,padding:"3px 12px",borderRadius:99,background:col.soft,color:col.text,border:`1px solid ${col.border}`}}>{course.course_code}</span>
+          <h1 style={{fontSize:20,fontWeight:800,color:"#1a2332",marginTop:10,marginBottom:14}}>{course.course_name}</h1>
+          <div style={{display:"flex",gap:24,flexWrap:"wrap"}}>
+            {[["👤 Instructor",course.instructor_name||"—"],["📍 Room",course.room||"—"],["🕐 Schedule",course.schedule||"—"],["📧 Email",course.instructor_email||"—"]].map(([l,v])=>(
+              <div key={l}><div style={{fontSize:10,color:"#94A3B8",fontWeight:700,textTransform:"uppercase",letterSpacing:".04em"}}>{l}</div><div style={{fontSize:13,color:"#475569",fontWeight:600,marginTop:1}}>{v}</div></div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div style={{display:"flex",gap:4,borderBottom:"2px solid #E8EDF5",marginBottom:20,overflowX:"auto"}}>
+        {TABS.map(t=>(
+          <button key={t.k} onClick={()=>setTab(t.k)} style={{padding:"10px 16px",border:"none",background:"none",cursor:"pointer",fontSize:13,fontWeight:tab===t.k?800:500,color:tab===t.k?"#1a2332":"#94A3B8",borderBottom:`2px solid ${tab===t.k?col.accent:"transparent"}`,marginBottom:-2,whiteSpace:"nowrap",fontFamily:"inherit"}}>
+            {t.l}
+          </button>
+        ))}
+      </div>
+
+      {/* Notes */}
+      {tab==="notes"&&<div>
+        <div style={{display:"flex",justifyContent:"flex-end",marginBottom:14}}><Btn onClick={()=>open("note",null)}><Ic n="plus" size={14}/> Add Note</Btn></div>
+        {cN.length===0?<Empty icon="note" title="No notes yet" sub="Add your first note for this course" action="Add Note" onAction={()=>open("note",null)}/>:
+          cN.map(note=>(
+            <div key={note.id} style={{background:"#fff",borderRadius:13,border:"1px solid #E8EDF5",padding:"18px 20px",marginBottom:12}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+                <div>
+                  <div style={{fontWeight:800,fontSize:15,color:"#1a2332"}}>{note.title}</div>
+                  <div style={{fontSize:11,color:"#94A3B8",marginTop:2}}>Updated {fmtDate(note.updated_at)}</div>
+                </div>
+                <div style={{display:"flex",gap:6}}>
+                  <Btn variant="secondary" size="sm" onClick={()=>open("note",note)}><Ic n="edit" size={12}/> Edit</Btn>
+                  <Btn variant="danger" size="sm" onClick={()=>del("note",note.id)}><Ic n="trash" size={12}/></Btn>
+                </div>
+              </div>
+              {note.content
+                ?<div style={{fontSize:14,color:"#374151",lineHeight:1.7,borderTop:"1px solid #F1F5F9",paddingTop:12}} dangerouslySetInnerHTML={{__html:note.content}}/>
+                :<div style={{fontSize:13,color:"#94A3B8",fontStyle:"italic",borderTop:"1px solid #F1F5F9",paddingTop:12}}>No content — click Edit to write your notes.</div>
+              }
+            </div>
+          ))
+        }
+      </div>}
+
+      {/* Deadlines */}
+      {tab==="deadlines"&&<div>
+        <div style={{display:"flex",justifyContent:"flex-end",marginBottom:14}}><Btn onClick={()=>open("deadline",null)}><Ic n="plus" size={14}/> Add Deadline</Btn></div>
+        {cD.length===0?<Empty icon="clock" title="No deadlines" sub="Track submission deadlines here" action="Add Deadline" onAction={()=>open("deadline",null)}/>:
+          cD.map(d=><Row key={d.id} item={d} type="deadline" meta={<><span>📅 {fmtDT(d.due_date)}</span><PPill p={d.priority}/><SPill s={d.status}/>{d.reminder&&d.reminder!=="None"&&<Pill>🔔 {d.reminder}</Pill>}</>}/>)
+        }
+      </div>}
+
+      {/* Quizzes */}
+      {tab==="quizzes"&&<div>
+        <div style={{display:"flex",justifyContent:"flex-end",marginBottom:14}}><Btn onClick={()=>open("quiz",null)}><Ic n="plus" size={14}/> Add Quiz</Btn></div>
+        {cQ.length===0?<Empty icon="doc" title="No quizzes" sub="Track upcoming quizzes here" action="Add Quiz" onAction={()=>open("quiz",null)}/>:
+          cQ.map(q=><Row key={q.id} item={{...q,due_date:q.date_time}} type="quiz" meta={<><span>📅 {fmtDT(q.date_time)}</span>{q.weight?<Pill>{q.weight}% weight</Pill>:null}{q.score!=null&&q.score!==""?<Pill color="#22C55E" bg="#F0FDF4">Score: {q.score}%</Pill>:null}<SPill s={q.status}/></>}/>)
+        }
+      </div>}
+
+      {/* Assessments */}
+      {tab==="assessments"&&<div>
+        <div style={{display:"flex",justifyContent:"flex-end",marginBottom:14}}><Btn onClick={()=>open("assessment",null)}><Ic n="plus" size={14}/> Add Assessment</Btn></div>
+        {cA.length===0?<Empty icon="star" title="No assessments" sub="Track midterms, finals & projects" action="Add Assessment" onAction={()=>open("assessment",null)}/>:
+          cA.map(a=><Row key={a.id} item={a} type="assessment" meta={<><Pill>{a.type}</Pill><span>📅 {fmtDT(a.due_date)}</span><Pill>{a.weight||0}%</Pill><Pill>{a.submission_type}</Pill><SPill s={a.status}/></>}/>)
+        }
+      </div>}
+
+      {/* Assignments */}
+      {tab==="assignments"&&<div>
+        <div style={{display:"flex",justifyContent:"flex-end",marginBottom:14}}><Btn onClick={()=>open("assignment",null)}><Ic n="plus" size={14}/> Add Assignment</Btn></div>
+        {cX.length===0?<Empty icon="doc" title="No assignments" sub="Track your assignments here" action="Add Assignment" onAction={()=>open("assignment",null)}/>:
+          cX.map(a=><Row key={a.id} item={a} type="assignment" meta={<><span>📅 {fmtDT(a.due_date)}</span><PPill p={a.priority}/><SPill s={a.status}/><Pill>{a.submission_type}</Pill>{a.points?<Pill>{a.points} pts</Pill>:null}</>}/>)
+        }
+      </div>}
+
+      {/* Modal */}
+      {modal&&(
+        <Modal title={`${modal.mode==="add"?"Add":"Edit"} ${modal.type.charAt(0).toUpperCase()+modal.type.slice(1)}`} onClose={close} wide={modal.type==="note"}>
+          <Err msg={err}/>
+          {modal.type==="note"&&<>
+            <Inp label="Title" value={form.title||""} onChange={f("title")} placeholder="Note title / topic" required/>
+            <div style={{marginBottom:12}}><label style={{fontSize:11,fontWeight:700,color:"#64748B",display:"block",marginBottom:6,textTransform:"uppercase"}}>Content</label><RichEd value={form.content||""} onChange={v=>setForm(p=>({...p,content:v}))}/></div>
+          </>}
+          {modal.type==="deadline"&&<>
+            <Inp label="Title" value={form.title||""} onChange={f("title")} placeholder="e.g. Submit Research Proposal" required/>
+            <TA label="Description" value={form.description||""} onChange={f("description")} rows={2}/>
+            <Inp label="Due Date & Time" type="datetime-local" value={toInpDT(form.due_date)} onChange={f("due_date")} required/>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+              <Sel label="Priority" value={form.priority||"Medium"} onChange={f("priority")} options={["High","Medium","Low"]}/>
+              <Sel label="Status"   value={form.status||"Pending"}  onChange={f("status")}   options={["Pending","Done"]}/>
+            </div>
+            <Sel label="Reminder" value={form.reminder||"None"} onChange={f("reminder")} options={["None","1 day before","2 hours before"]}/>
+          </>}
+          {modal.type==="quiz"&&<>
+            <Inp label="Title" value={form.title||""} onChange={f("title")} placeholder="e.g. Mid-term Quiz 1" required/>
+            <Inp label="Date & Time" type="datetime-local" value={toInpDT(form.date_time)} onChange={f("date_time")} required/>
+            <TA label="Topics Covered" value={form.topics_covered||""} onChange={f("topics_covered")} rows={2}/>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:16}}>
+              <Inp label="Weight (%)" type="number" value={form.weight||""} onChange={f("weight")} min={0} max={100}/>
+              <Inp label="Score (after)" type="number" value={form.score||""} onChange={f("score")} min={0} max={100}/>
+              <Sel label="Status" value={form.status||"Upcoming"} onChange={f("status")} options={["Upcoming","Completed"]}/>
+            </div>
+          </>}
+          {modal.type==="assessment"&&<>
+            <Inp label="Title" value={form.title||""} onChange={f("title")} placeholder="e.g. Final Capstone Project" required/>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+              <Sel label="Type" value={form.type||"Midterm"} onChange={f("type")} options={["Midterm","Final","Project"]}/>
+              <Inp label="Weight (%)" type="number" value={form.weight||""} onChange={f("weight")} min={0} max={100} required/>
+            </div>
+            <Inp label="Due Date" type="datetime-local" value={toInpDT(form.due_date)} onChange={f("due_date")} required/>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+              <Sel label="Submission Type" value={form.submission_type||"Online"} onChange={f("submission_type")} options={["Online","In-person","File upload"]}/>
+              <Sel label="Status" value={form.status||"Not Started"} onChange={f("status")} options={["Not Started","In Progress","Submitted","Graded"]}/>
+            </div>
+          </>}
+          {modal.type==="assignment"&&<>
+            <Inp label="Title" value={form.title||""} onChange={f("title")} placeholder="e.g. Week 3 Problem Set" required/>
+            <TA label="Description" value={form.description||""} onChange={f("description")} rows={2}/>
+            <Inp label="Due Date & Time" type="datetime-local" value={toInpDT(form.due_date)} onChange={f("due_date")} required/>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:16}}>
+              <Sel label="Priority" value={form.priority||"Medium"} onChange={f("priority")} options={["High","Medium","Low"]}/>
+              <Sel label="Status" value={form.status||"Not Started"} onChange={f("status")} options={["Not Started","In Progress","Submitted","Graded"]}/>
+              <Inp label="Points" type="number" value={form.points||""} onChange={f("points")} min={0}/>
+            </div>
+            <Sel label="Submission Type" value={form.submission_type||"Text entry"} onChange={f("submission_type")} options={["Link","File upload","Text entry"]}/>
+          </>}
+          <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:8}}>
+            <Btn variant="secondary" onClick={close}>Cancel</Btn>
+            <Btn onClick={save} loading={saving}><Ic n="ok" size={14}/> Save</Btn>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   NOTES PAGE
+───────────────────────────────────────────────────────────────────────────── */
+function NotesPage({notes,courses,reload}){
+  const [search,setSearch]=useState(""); const [cf,setCf]=useState("");
+  const [modal,setModal]=useState(null); const [form,setForm]=useState({});
+  const [saving,setSaving]=useState(false); const [err,setErr]=useState("");
+  const f=k=>e=>setForm(p=>({...p,[k]:e.target.value}));
+  const gc=id=>courses.find(c=>c.id===id);
+  const filtered=notes.filter(n=>{if(cf&&n.course_id!==cf)return false;if(search&&!n.title.toLowerCase().includes(search.toLowerCase()))return false;return true;});
+  const save=async()=>{
+    if(!form.title||!form.course_id){setErr("Title and course are required.");return;}
+    setSaving(true);setErr("");
+    try{
+      const p={title:form.title,course_id:form.course_id,content:form.content||""};
+      if(modal.mode==="add")await db.ins("notes",p);else await db.upd("notes",modal.item.id,p);
+      await reload();setModal(null);
+    }catch(e){setErr(e.message);}
+    setSaving(false);
+  };
+  const del=async id=>{if(!confirm("Delete this note?"))return;try{await db.del("notes",id);await reload();}catch(e){alert(e.message);}};
+  return(
+    <div className="fi">
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20}}>
+        <div><h1 style={{fontSize:24,fontWeight:800,color:"#1a2332"}}>Notes</h1><p style={{fontSize:13,color:"#64748B"}}>All lecture notes across your courses</p></div>
+        <Btn onClick={()=>{setModal({mode:"add"});setForm({course_id:cf||""});setErr("");}}>
+          <Ic n="plus" size={14}/> New Note
+        </Btn>
+      </div>
+      <div style={{display:"flex",gap:10,marginBottom:20,flexWrap:"wrap"}}>
+        <div style={{position:"relative",flex:1,minWidth:200}}>
+          <Ic n="srch" size={15} style={{position:"absolute",left:11,top:"50%",transform:"translateY(-50%)",color:"#94A3B8",pointerEvents:"none"}}/>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search notes..."
+            style={{width:"100%",padding:"9px 12px 9px 34px",borderRadius:9,border:"1.5px solid #E2E8F0",fontSize:13,background:"#fff",outline:"none",boxSizing:"border-box"}}/>
+        </div>
+        <select value={cf} onChange={e=>setCf(e.target.value)} style={{padding:"9px 14px",borderRadius:9,border:"1.5px solid #E2E8F0",fontSize:13,background:"#fff",outline:"none",minWidth:180}}>
+          <option value="">All Courses</option>
+          {courses.map(c=><option key={c.id} value={c.id}>{c.course_code}</option>)}
+        </select>
+      </div>
+      {filtered.length===0?<Empty icon="note" title="No notes found" sub={search?"Try a different search term":"Add your first note"} action="New Note" onAction={()=>{setModal({mode:"add"});setForm({});}}/>:
+        <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:14}}>
+          {filtered.map(note=>{const c=gc(note.course_id);const col=c?PAL[c.color_tag]:PAL.Blue;return(
+            <div key={note.id} style={{background:"#fff",borderRadius:14,border:"1px solid #E8EDF5",padding:"18px",position:"relative",overflow:"hidden"}}>
+              <div style={{position:"absolute",top:0,left:0,bottom:0,width:4,background:col.accent}}/>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+                <div style={{flex:1,minWidth:0}}><div style={{fontWeight:800,fontSize:14,color:"#1a2332",marginBottom:6}}>{note.title}</div>{c&&<CPill course={c}/>}</div>
+                <div style={{display:"flex",gap:6}}>
+                  <Btn variant="secondary" size="sm" onClick={()=>{setModal({mode:"edit",item:note});setForm({...note});setErr("");}}><Ic n="edit" size={12}/></Btn>
+                  <Btn variant="danger" size="sm" onClick={()=>del(note.id)}><Ic n="trash" size={12}/></Btn>
+                </div>
+              </div>
+              {note.content?<div style={{fontSize:12,color:"#64748B",lineHeight:1.6,maxHeight:80,overflow:"hidden"}} dangerouslySetInnerHTML={{__html:note.content}}/>:<div style={{fontSize:12,color:"#94A3B8",fontStyle:"italic"}}>No content yet</div>}
+              <div style={{fontSize:10,color:"#94A3B8",marginTop:10}}>Updated {fmtDate(note.updated_at)}</div>
+            </div>
+          );})}
+        </div>
+      }
+      {modal&&(
+        <Modal title={modal.mode==="add"?"New Note":"Edit Note"} onClose={()=>setModal(null)} wide>
+          <Err msg={err}/>
+          <Inp label="Title" value={form.title||""} onChange={f("title")} placeholder="Note title / topic" required/>
+          <Sel label="Course" value={form.course_id||""} onChange={f("course_id")}
+            options={[{v:"",l:"— Select Course —"},...courses.map(c=>({v:c.id,l:`${c.course_code} — ${c.course_name.slice(0,40)}`}))]} required/>
+          <div style={{marginBottom:12}}>
+            <label style={{fontSize:11,fontWeight:700,color:"#64748B",display:"block",marginBottom:6,textTransform:"uppercase"}}>Content</label>
+            <RichEd value={form.content||""} onChange={v=>setForm(p=>({...p,content:v}))}/>
+          </div>
+          <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:8}}>
+            <Btn variant="secondary" onClick={()=>setModal(null)}>Cancel</Btn>
+            <Btn onClick={save} loading={saving}><Ic n="ok" size={14}/> Save Note</Btn>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   CALENDAR PAGE
+───────────────────────────────────────────────────────────────────────────── */
+function CalendarPage({courses,deadlines,quizzes,assessments,assignments,reloadAll}){
+  const [date,setDate]=useState(new Date()); const [sel,setSel]=useState(null);
+  const [modal,setModal]=useState(null); const [form,setForm]=useState({});
+  const [saving,setSaving]=useState(false); const [err,setErr]=useState("");
+  const yr=date.getFullYear(),mo=date.getMonth();
+  const first=new Date(yr,mo,1).getDay(),dim=new Date(yr,mo+1,0).getDate();
+  const MN=["January","February","March","April","May","June","July","August","September","October","November","December"];
+  const TC={deadline:"#EF4444",quiz:"#8B5CF6",assessment:"#3B82F6",assignment:"#F97316"};
+  const f=k=>e=>setForm(p=>({...p,[k]:e.target.value}));
+  const allEvts=[...deadlines.map(d=>({...d,_t:"deadline",_d:d.due_date})),...quizzes.map(q=>({...q,_t:"quiz",_d:q.date_time})),...assessments.map(a=>({...a,_t:"assessment",_d:a.due_date})),...assignments.map(a=>({...a,_t:"assignment",_d:a.due_date}))];
+  const dayEvts=day=>{const dt=new Date(yr,mo,day);return allEvts.filter(e=>{const ed=new Date(e._d);return ed.getFullYear()===dt.getFullYear()&&ed.getMonth()===dt.getMonth()&&ed.getDate()===dt.getDate();});};
+  const gc=id=>courses.find(c=>c.id===id);
+  const TBL={deadline:"deadlines",quiz:"quizzes",assessment:"assessments",assignment:"assignments"};
+  const openAdd=()=>{const pre=sel?new Date(yr,mo,sel).toISOString().slice(0,16):"";setForm({_t:"deadline",course_id:"",due_date:pre,priority:"Medium",status:"Pending"});setModal({mode:"add"});setErr("");};
+  const openEdit=ev=>{setModal({mode:"edit",ev});setForm({...ev,due_date:ev.due_date||ev.date_time});setErr("");};
+  const saveEvt=async()=>{
+    if(!form.title||!form.due_date){setErr("Title and date are required.");return;}
+    setSaving(true);setErr("");const tbl=TBL[form._t];
+    try{
+      let p={title:form.title,course_id:form.course_id||null};
+      if(form._t==="deadline")p={...p,due_date:form.due_date,priority:form.priority||"Medium",status:form.status||"Pending"};
+      if(form._t==="quiz")p={...p,date_time:form.due_date,status:form.status||"Upcoming",weight:Number(form.weight)||0};
+      if(form._t==="assessment")p={...p,due_date:form.due_date,type:form.atype||"Midterm",weight:Number(form.weight)||0,submission_type:"Online",status:form.status||"Not Started"};
+      if(form._t==="assignment")p={...p,due_date:form.due_date,priority:form.priority||"Medium",status:form.status||"Not Started",submission_type:"Text entry"};
+      if(modal.mode==="add")await db.ins(tbl,p);else await db.upd(tbl,modal.ev.id,p);
+      await reloadAll();setModal(null);
+    }catch(e){setErr(e.message);}
+    setSaving(false);
+  };
+  const delEvt=async ev=>{if(!confirm("Delete this event?"))return;try{await db.del(TBL[ev._t],ev.id);await reloadAll();}catch(e){alert(e.message);}};
+  const selEvts=sel?dayEvts(sel):[];
+  return(
+    <div className="fi">
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20}}>
+        <div><h1 style={{fontSize:24,fontWeight:800,color:"#1a2332"}}>Calendar</h1><p style={{fontSize:13,color:"#64748B"}}>Click a day to view or add events</p></div>
+        <Btn onClick={openAdd}><Ic n="plus" size={14}/> Add Event</Btn>
+      </div>
+      <div style={{display:"flex",gap:16,marginBottom:14,flexWrap:"wrap"}}>
+        {Object.entries(TC).map(([t,c])=><div key={t} style={{display:"flex",alignItems:"center",gap:5,fontSize:12,color:"#64748B",fontWeight:500}}><div style={{width:10,height:10,borderRadius:"50%",background:c}}/>{t.charAt(0).toUpperCase()+t.slice(1)}</div>)}
+      </div>
+      <div style={{background:"#fff",borderRadius:18,border:"1px solid #E8EDF5",overflow:"hidden",marginBottom:20}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"18px 22px",borderBottom:"1px solid #F1F5F9"}}>
+          <Btn variant="secondary" size="sm" onClick={()=>setDate(new Date(yr,mo-1,1))}><Ic n="cL" size={14}/></Btn>
+          <span style={{fontSize:17,fontWeight:800,color:"#1a2332"}}>{MN[mo]} {yr}</span>
+          <Btn variant="secondary" size="sm" onClick={()=>setDate(new Date(yr,mo+1,1))}><Ic n="cR" size={14}/></Btn>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",background:"#F8FAFC",borderBottom:"1px solid #F1F5F9"}}>
+          {["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(d=><div key={d} style={{textAlign:"center",padding:"8px",fontSize:11,fontWeight:800,color:"#94A3B8"}}>{d}</div>)}
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)"}}>
+          {Array(first).fill(null).map((_,i)=><div key={`e${i}`} style={{minHeight:90,borderRight:"1px solid #F8FAFC",borderBottom:"1px solid #F8FAFC"}}/>)}
+          {Array(dim).fill(null).map((_,i)=>{
+            const day=i+1,evts=dayEvts(day);
+            const isToday=NOW().getDate()===day&&NOW().getMonth()===mo&&NOW().getFullYear()===yr;
+            const isSel=sel===day;
+            return(
+              <div key={day} onClick={()=>setSel(isSel?null:day)} style={{minHeight:90,padding:"6px 8px",borderRight:"1px solid #F8FAFC",borderBottom:"1px solid #F8FAFC",background:isSel?"#EFF6FF":isToday?"#F8FAFC":"#fff",cursor:"pointer",transition:"background .15s"}}>
+                <div style={{fontSize:13,fontWeight:isToday?800:500,width:24,height:24,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",background:isToday?"#2563EB":"transparent",color:isToday?"#fff":"#374151",marginBottom:4}}>{day}</div>
+                {evts.slice(0,3).map(ev=><div key={ev.id} style={{fontSize:10,fontWeight:600,padding:"2px 5px",borderRadius:5,background:TC[ev._t]+"22",color:TC[ev._t],marginBottom:2,overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis",border:`1px solid ${TC[ev._t]}44`}}>{ev.title}</div>)}
+                {evts.length>3&&<div style={{fontSize:10,color:"#94A3B8"}}>+{evts.length-3} more</div>}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      {sel&&(
+        <div style={{background:"#fff",borderRadius:16,border:"1px solid #E8EDF5",padding:"20px"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+            <h2 style={{fontSize:15,fontWeight:800,color:"#1a2332"}}>{MN[mo]} {sel}, {yr}</h2>
+            <Btn onClick={openAdd} size="sm"><Ic n="plus" size={12}/> Add</Btn>
+          </div>
+          {selEvts.length===0?<Empty icon="cal" title="No events" sub="Click '+ Add' to schedule something"/>:
+            selEvts.map(ev=>{const c=gc(ev.course_id);const col=c?PAL[c.color_tag]:PAL.Blue;return(
+              <div key={ev.id} style={{display:"flex",gap:10,padding:"12px 14px",borderRadius:11,marginBottom:8,background:col.bg,border:`1px solid ${col.border}`,alignItems:"center"}}>
+                <div style={{width:4,alignSelf:"stretch",borderRadius:2,background:TC[ev._t],flexShrink:0}}/>
+                <div style={{flex:1}}>
+                  <div style={{fontWeight:700,fontSize:13,color:"#1a2332"}}>{ev.title}</div>
+                  <div style={{fontSize:11,color:"#64748B",display:"flex",gap:8,marginTop:2}}>
+                    {c&&<CPill course={c}/>}<span style={{color:TC[ev._t],fontWeight:600}}>{ev._t}</span><span>· {fmtTime(ev._d)}</span>
+                  </div>
+                </div>
+                <div style={{display:"flex",gap:6}}>
+                  <Btn variant="secondary" size="sm" onClick={()=>openEdit(ev)}><Ic n="edit" size={12}/></Btn>
+                  <Btn variant="danger"    size="sm" onClick={()=>delEvt(ev)}><Ic n="trash" size={12}/></Btn>
+                </div>
+              </div>
+            );}
+          )}
+        </div>
+      )}
+      {modal&&(
+        <Modal title={`${modal.mode==="add"?"Add":"Edit"} Event`} onClose={()=>setModal(null)}>
+          <Err msg={err}/>
+          <Sel label="Type" value={form._t||"deadline"} onChange={f("_t")} options={[{v:"deadline",l:"Deadline"},{v:"quiz",l:"Quiz"},{v:"assessment",l:"Assessment"},{v:"assignment",l:"Assignment"}]}/>
+          <Inp label="Title" value={form.title||""} onChange={f("title")} placeholder="Event title" required/>
+          <Sel label="Course" value={form.course_id||""} onChange={f("course_id")} options={[{v:"",l:"— Select Course —"},...courses.map(c=>({v:c.id,l:`${c.course_code} – ${c.course_name.slice(0,30)}`}))]}/>
+          <Inp label="Date & Time" type="datetime-local" value={toInpDT(form.due_date)} onChange={f("due_date")} required/>
+          {(form._t==="deadline"||form._t==="assignment")&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}><Sel label="Priority" value={form.priority||"Medium"} onChange={f("priority")} options={["High","Medium","Low"]}/><Sel label="Status" value={form.status||"Pending"} onChange={f("status")} options={form._t==="deadline"?["Pending","Done"]:["Not Started","In Progress","Submitted","Graded"]}/></div>}
+          {(form._t==="quiz"||form._t==="assessment")&&<Inp label="Weight (%)" type="number" value={form.weight||""} onChange={f("weight")} min={0} max={100}/>}
+          {form._t==="assessment"&&<Sel label="Assessment Type" value={form.atype||"Midterm"} onChange={f("atype")} options={["Midterm","Final","Project"]}/>}
+          <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:8}}>
+            <Btn variant="secondary" onClick={()=>setModal(null)}>Cancel</Btn>
+            <Btn onClick={saveEvt} loading={saving}><Ic n="ok" size={14}/> Save</Btn>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   TIMETABLE PAGE
+   Rows = time slots (06:30 → 21:30 in 30-min increments)
+   Columns = days of the week (Mon–Sun)
+   Cells are editable — click to add/edit a timetable slot
+───────────────────────────────────────────────────────────────────────────── */
+function TimetablePage({courses,slots,reloadSlots}){
+  const [modal,setModal]=useState(null);
+  const [form,setForm]=useState({});
+  const [saving,setSaving]=useState(false);
+  const [err,setErr]=useState("");
+  const f=k=>e=>setForm(p=>({...p,[k]:e.target.value}));
+
+  const gc=id=>courses.find(c=>c.id===id);
+
+  // find slot for a given day+time
+  const slotAt=(day,time)=>slots.find(s=>s.day===day&&s.start_time===time);
+
+  const openCell=(day,time)=>{
+    const existing=slotAt(day,time);
+    if(existing){setForm({...existing});setModal({mode:"edit",day,time});}
+    else{setForm({day,start_time:time,end_time:"",course_id:"",label:"",color_tag:"Blue"});setModal({mode:"add",day,time});}
+    setErr("");
+  };
+
+  const save=async()=>{
+    setSaving(true);setErr("");
+    try{
+      const p={day:form.day,start_time:form.start_time,end_time:form.end_time||form.start_time,course_id:form.course_id||null,label:form.label||null,color_tag:form.color_tag||"Blue"};
+      if(modal.mode==="add")await db.ins("timetable_slots",p);
+      else await db.upd("timetable_slots",form.id,p);
+      await reloadSlots();setModal(null);
+    }catch(e){setErr(e.message);}
+    setSaving(false);
+  };
+
+  const del=async()=>{
+    if(!form.id)return;
+    if(!confirm("Remove this slot?"))return;
+    try{await db.del("timetable_slots",form.id);await reloadSlots();setModal(null);}catch(e){alert(e.message);}
+  };
+
+  // group multi-slot entries: if a course occupies consecutive times on a day, render as a block
+  const CELL_H=44; // px per 30-min slot
+  const COL_W=120;
+  const TIME_W=64;
+
+  return(
+    <div className="fi">
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20}}>
+        <div>
+          <h1 style={{fontSize:24,fontWeight:800,color:"#1a2332"}}>Timetable</h1>
+          <p style={{fontSize:13,color:"#64748B"}}>06:30 – 21:30 · Click any cell to add or edit a class slot</p>
+        </div>
+      </div>
+
+      <div style={{background:"#fff",borderRadius:18,border:"1px solid #E8EDF5",overflow:"auto"}}>
+        <table style={{borderCollapse:"collapse",width:"100%",minWidth:TIME_W+COL_W*7}}>
+          {/* ── HEADER ROW: days ── */}
+          <thead>
+            <tr>
+              <th style={{width:TIME_W,background:"#1E3A5F",color:"#fff",fontSize:12,fontWeight:700,padding:"14px 12px",textAlign:"center",borderRight:"1px solid rgba(255,255,255,.15)",position:"sticky",left:0,zIndex:2}}>Time</th>
+              {TT_DAYS.map(day=>(
+                <th key={day} style={{width:COL_W,background:"#1E3A5F",color:"#fff",fontSize:12,fontWeight:700,padding:"14px 8px",textAlign:"center",borderRight:"1px solid rgba(255,255,255,.12)"}}>
+                  {day}
+                </th>
+              ))}
+            </tr>
+          </thead>
+
+          {/* ── BODY: one row per 30-min slot ── */}
+          <tbody>
+            {TT_SLOTS.map((time,idx)=>{
+              const isHour=time.endsWith(":00");
+              return(
+                <tr key={time} style={{background:isHour?"#FAFBFF":"#fff"}}>
+                  {/* Time label */}
+                  <td style={{width:TIME_W,fontSize:11,fontWeight:isHour?700:400,color:isHour?"#1E3A5F":"#94A3B8",padding:"0 12px",textAlign:"right",borderRight:"1px solid #E8EDF5",borderBottom:"1px solid #F1F5F9",height:CELL_H,verticalAlign:"middle",background:isHour?"#EFF6FF":"#fff",position:"sticky",left:0,zIndex:1}}>
+                    {time}
+                  </td>
+                  {/* Day cells */}
+                  {TT_DAYS.map(day=>{
+                    const slot=slotAt(day,time);
+                    const col=slot?(PAL[slot.color_tag]||PAL.Blue):{};
+                    const course=slot&&slot.course_id?gc(slot.course_id):null;
+                    return(
+                      <td key={day}
+                        onClick={()=>openCell(day,time)}
+                        style={{width:COL_W,height:CELL_H,padding:"3px 6px",borderRight:"1px solid #F1F5F9",borderBottom:"1px solid #F1F5F9",verticalAlign:"top",cursor:"pointer",transition:"background .12s"}}
+                        onMouseEnter={e=>{ if(!slot)e.currentTarget.style.background="#F8FAFC"; }}
+                        onMouseLeave={e=>{ if(!slot)e.currentTarget.style.background=""; }}>
+                        {slot&&(
+                          <div style={{background:col.soft,border:`1px solid ${col.border}`,borderRadius:8,padding:"4px 7px",height:"100%",boxSizing:"border-box",overflow:"hidden"}}>
+                            <div style={{fontSize:11,fontWeight:800,color:col.text,overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}}>
+                              {course?course.course_code:slot.label||"Class"}
+                            </div>
+                            {(slot.label&&course)&&<div style={{fontSize:10,color:col.text,opacity:.75,overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}}>{slot.label}</div>}
+                            {slot.end_time&&slot.end_time!==time&&<div style={{fontSize:9,color:col.text,opacity:.6,marginTop:1}}>until {slot.end_time}</div>}
+                          </div>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Slot edit modal */}
+      {modal&&(
+        <Modal title={`${modal.mode==="add"?"Add Slot":"Edit Slot"} — ${modal.day} ${modal.time}`} onClose={()=>setModal(null)}>
+          <Err msg={err}/>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+            <Inp label="Start Time" value={form.start_time||""} onChange={f("start_time")} placeholder="08:30"/>
+            <Inp label="End Time"   value={form.end_time||""}   onChange={f("end_time")}   placeholder="10:00"/>
+          </div>
+          <Sel label="Course (optional)" value={form.course_id||""} onChange={f("course_id")}
+            options={[{v:"",l:"— Free slot / custom label —"},...courses.map(c=>({v:c.id,l:`${c.course_code} — ${c.course_name.slice(0,35)}`}))]}/>
+          <Inp label="Label (optional)" value={form.label||""} onChange={f("label")} placeholder="e.g. Lab session, Study time…"/>
+          <ColorPicker value={form.color_tag||"Blue"} onChange={v=>setForm(p=>({...p,color_tag:v}))}/>
+          <div style={{display:"flex",gap:10,justifyContent:"space-between",marginTop:8}}>
+            <div>
+              {modal.mode==="edit"&&<Btn variant="danger" onClick={del}>Remove Slot</Btn>}
+            </div>
+            <div style={{display:"flex",gap:10}}>
+              <Btn variant="secondary" onClick={()=>setModal(null)}>Cancel</Btn>
+              <Btn onClick={save} loading={saving}><Ic n="ok" size={14}/> Save Slot</Btn>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   PROFILE PAGE
+───────────────────────────────────────────────────────────────────────────── */
+function ProfilePage({session,onSignOut}){
+  const meta=session?.user?.user_metadata||{};
+  const [form,setForm]=useState({first_name:meta.first_name||"",last_name:meta.last_name||"",student_id:meta.student_id||"",email:session?.user?.email||""});
+  const [saving,setSaving]=useState(false); const [msg,setMsg]=useState("");
+  const f=k=>e=>setForm(p=>({...p,[k]:e.target.value}));
+  const save=async()=>{
+    setSaving(true);setMsg("");
+    const{error}=await supabase.auth.updateUser({data:{first_name:form.first_name,last_name:form.last_name,student_id:form.student_id}});
+    setSaving(false);setMsg(error?`Error: ${error.message}`:"✓ Profile saved!");
+    setTimeout(()=>setMsg(""),3000);
+  };
+  return(
+    <div className="fi">
+      <h1 style={{fontSize:24,fontWeight:800,color:"#1a2332",marginBottom:4}}>Profile & Settings</h1>
+      <p style={{fontSize:13,color:"#64748B",marginBottom:28}}>University of Cape Coast</p>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 2fr",gap:24}}>
+        {/* Avatar card */}
+        <div style={{background:"#fff",borderRadius:18,border:"1px solid #E8EDF5",padding:"32px 24px",textAlign:"center"}}>
+          <div style={{width:80,height:80,borderRadius:"50%",background:"linear-gradient(135deg,#1E3A5F,#3B82F6)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:800,fontSize:28,margin:"0 auto 16px",fontFamily:"'Lora',serif"}}>
+            {(form.first_name?.[0]||"?").toUpperCase()}{(form.last_name?.[0]||"").toUpperCase()}
+          </div>
+          <div style={{fontWeight:800,fontSize:17,color:"#1a2332",fontFamily:"'Lora',serif"}}>{form.first_name} {form.last_name}</div>
+          <div style={{fontSize:12,color:"#64748B",marginTop:4}}>{form.student_id}</div>
+          <div style={{fontSize:12,color:"#64748B",marginTop:2}}>{form.email}</div>
+          <div style={{marginTop:20}}>
+            <Btn variant="danger" onClick={onSignOut} style={{width:"100%",justifyContent:"center"}}>
+              <Ic n="out" size={14}/> Sign Out
+            </Btn>
+          </div>
+        </div>
+        {/* Form */}
+        <div style={{background:"#fff",borderRadius:18,border:"1px solid #E8EDF5",padding:"28px"}}>
+          <h2 style={{fontSize:16,fontWeight:800,color:"#1a2332",marginBottom:20}}>Edit Profile</h2>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 20px"}}>
+            <Inp label="First Name"  value={form.first_name}  onChange={f("first_name")}/>
+            <Inp label="Last Name"   value={form.last_name}   onChange={f("last_name")}/>
+            <Inp label="Student ID"  value={form.student_id}  onChange={f("student_id")} placeholder="e.g. EH/GOV/25/0014"/>
+            <Inp label="Email (read-only)" value={form.email} onChange={()=>{}} style={{background:"#F8FAFC",color:"#94A3B8"}}/>
+          </div>
+          <div style={{display:"flex",justifyContent:"flex-end",gap:10,alignItems:"center",marginTop:4}}>
+            {msg&&<span style={{fontSize:13,color:msg.startsWith("✓")?"#22C55E":"#DC2626",fontWeight:600}}>{msg}</span>}
+            <Btn onClick={save} loading={saving}><Ic n="ok" size={14}/> Save Changes</Btn>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   SIDEBAR
+───────────────────────────────────────────────────────────────────────────── */
+function Sidebar({active,onNav,courses,onSelect,collapsed,setCollapsed}){
+  const NAV=[
+    {k:"dashboard", i:"home", l:"Dashboard"},
+    {k:"courses",   i:"book", l:"Courses"},
+    {k:"notes",     i:"note", l:"Notes"},
+    {k:"calendar",  i:"cal",  l:"Calendar"},
+    {k:"timetable", i:"tbl",  l:"Timetable"},
+    {k:"profile",   i:"user", l:"Profile"},
+  ];
+  return(
+    <div style={{width:collapsed?64:240,minWidth:collapsed?64:240,height:"100vh",background:"#fff",borderRight:"1px solid #E8EDF5",display:"flex",flexDirection:"column",position:"sticky",top:0,transition:"width .25s,min-width .25s",overflow:"hidden",zIndex:10}}>
+      {/* Logo */}
+      <div style={{padding:collapsed?"16px 0":"20px 18px 16px",borderBottom:"1px solid #F1F5F9",display:"flex",alignItems:"center",justifyContent:collapsed?"center":"flex-start"}}>
+        {collapsed
+          ?<div style={{width:32,height:32,borderRadius:9,background:"#1E3A5F",display:"flex",alignItems:"center",justifyContent:"center"}}><span style={{color:"#fff",fontWeight:800,fontSize:14,fontFamily:"'Lora',serif"}}>S</span></div>
+          :<div><div style={{fontSize:18,fontWeight:800,color:"#1E3A5F",fontFamily:"'Lora',serif",letterSpacing:"-.4px"}}>StudyDesk</div><div style={{fontSize:10,color:"#94A3B8",fontWeight:600,marginTop:1}}>UCC · 2025/2026</div></div>
+        }
+      </div>
+
+      {/* Nav */}
+      <div style={{flex:1,overflowY:"auto",padding:"12px 8px"}}>
+        {!collapsed&&<div style={{fontSize:10,fontWeight:700,color:"#C0CCDA",textTransform:"uppercase",letterSpacing:".08em",padding:"6px 10px 4px"}}>Menu</div>}
+        {NAV.map(({k,i,l})=>{
+          const isA=active===k||(k==="courses"&&active==="course-detail");
+          return(
+            <button key={k} onClick={()=>onNav(k)}
+              style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:collapsed?"10px 0":"9px 12px",justifyContent:collapsed?"center":"flex-start",borderRadius:10,border:"none",cursor:"pointer",background:isA?"#EFF6FF":"transparent",color:isA?"#1E3A5F":"#64748B",fontWeight:isA?700:500,fontSize:13,marginBottom:2,fontFamily:"inherit",transition:"all .15s"}}>
+              <Ic n={i} size={17}/>{!collapsed&&<span>{l}</span>}
+            </button>
+          );
+        })}
+
+        {/* Quick-links */}
+        {!collapsed&&courses.length>0&&<>
+          <div style={{fontSize:10,fontWeight:700,color:"#C0CCDA",textTransform:"uppercase",letterSpacing:".08em",padding:"14px 10px 4px"}}>My Courses</div>
+          {courses.map(c=>{const col=PAL[c.color_tag];return(
+            <button key={c.id} onClick={()=>onSelect(c)}
+              style={{display:"flex",alignItems:"center",gap:8,width:"100%",padding:"7px 10px",borderRadius:9,border:"none",cursor:"pointer",background:"transparent",color:"#64748B",fontSize:12,fontWeight:500,marginBottom:1,fontFamily:"inherit",textAlign:"left"}}
+              onMouseEnter={e=>e.currentTarget.style.background="#F8FAFC"}
+              onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+              <div style={{width:8,height:8,borderRadius:"50%",background:col.accent,flexShrink:0}}/>
+              <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.course_code}</span>
+            </button>
+          );})}
+        </>}
+      </div>
+
+      {/* Collapse toggle */}
+      <div style={{padding:"10px 8px",borderTop:"1px solid #F1F5F9"}}>
+        <button onClick={()=>setCollapsed(p=>!p)}
+          style={{display:"flex",alignItems:"center",gap:8,width:"100%",padding:"8px 10px",justifyContent:collapsed?"center":"flex-start",borderRadius:9,border:"none",cursor:"pointer",background:"transparent",color:"#94A3B8",fontSize:12,fontFamily:"inherit"}}>
+          <Ic n={collapsed?"cR":"cL"} size={14}/>{!collapsed&&<span>Collapse</span>}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   ROOT EXPORT
+───────────────────────────────────────────────────────────────────────────── */
+export default function StudyDesk({session,onSignOut}){
+  const [view,      setView]      = useState("dashboard");
+  const [selCourse, setSelCourse] = useState(null);
+  const [collapsed, setCollapsed] = useState(false);
+
+  // ── Supabase data (RLS scopes every query to the current user) ──
+  const {rows:courses,     loading:lC, reload:rC} = useTable("courses");
+  const {rows:notes,       loading:lN, reload:rN} = useTable("notes","updated_at");
+  const {rows:deadlines,   loading:lD, reload:rD} = useTable("deadlines");
+  const {rows:quizzes,     loading:lQ, reload:rQ} = useTable("quizzes","date_time");
+  const {rows:assessments, loading:lA, reload:rA} = useTable("assessments");
+  const {rows:assignments, loading:lX, reload:rX} = useTable("assignments");
+  const {rows:slots,       loading:lS, reload:rS} = useTable("timetable_slots","start_time");
+
+  const loading = lC||lN||lD||lQ||lA||lX||lS;
+
+  const reloadAll = useCallback(async()=>{
+    await Promise.all([rC(),rN(),rD(),rQ(),rA(),rX(),rS()]);
+  },[]);
+
+  const nav = v => { setView(v); if(v!=="course-detail") setSelCourse(null); };
+  const selectCourse = c => { setSelCourse(c); setView("course-detail"); };
+
+  const all = {courses,notes,deadlines,quizzes,assessments,assignments};
+
+  const renderMain = () => {
+    if(loading) return <Skeleton/>;
+    switch(view){
+      case "dashboard":
+        return <Dashboard {...all} user={session?.user} onNav={nav}/>;
+      case "courses":
+        return <CoursesPage courses={courses} reload={rC} onSelect={selectCourse}/>;
+      case "course-detail":
+        if(!selCourse){nav("courses");return null;}
+        const fresh=courses.find(c=>c.id===selCourse.id)||selCourse;
+        return <CourseDetail course={fresh} notes={notes} deadlines={deadlines} quizzes={quizzes} assessments={assessments} assignments={assignments} reloadAll={reloadAll} onBack={()=>nav("courses")}/>;
+      case "notes":
+        return <NotesPage notes={notes} courses={courses} reload={rN}/>;
+      case "calendar":
+        return <CalendarPage courses={courses} deadlines={deadlines} quizzes={quizzes} assessments={assessments} assignments={assignments} reloadAll={reloadAll}/>;
+      case "timetable":
+        return <TimetablePage courses={courses} slots={slots} reloadSlots={rS}/>;
+      case "profile":
+        return <ProfilePage session={session} onSignOut={onSignOut}/>;
+      default: return null;
+    }
+  };
+
+  return(
+    <>
+      <style>{G}</style>
+      <div style={{display:"flex",height:"100vh",overflow:"hidden"}}>
+        <Sidebar active={view} onNav={nav} courses={courses} onSelect={selectCourse} collapsed={collapsed} setCollapsed={setCollapsed}/>
+        <main style={{flex:1,overflowY:"auto",padding:"32px 36px 48px",background:"#F0F4F8"}}>
+          {renderMain()}
+        </main>
+      </div>
+    </>
+  );
+}
