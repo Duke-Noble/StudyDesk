@@ -1,5 +1,5 @@
 // src/StudyDesk.jsx
-/* eslint-disable no-restricted-globals */
+/* eslint-disable no-restricted-globals, react-hooks/exhaustive-deps */
 // ─────────────────────────────────────────────────────────────────────────────
 //  StudyDesk — Personal Student Planner
 //  All data is stored in Supabase; Row Level Security scopes every
