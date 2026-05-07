@@ -1,5 +1,5 @@
 // src/supabaseClient.js
-// ─────────────────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────[...]
 //  Supabase client — uses CRA environment variable convention (REACT_APP_*)
 //
 //  SETUP INSTRUCTIONS
@@ -20,12 +20,12 @@
 //  5. Run the SQL in the comment block below inside:
 //     Supabase Dashboard → SQL Editor → New Query
 //
-// ─────────────────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────[...]
 //  SQL — PASTE INTO SUPABASE SQL EDITOR AND RUN
-// ─────────────────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────[...]
 /*
 
--- ── COURSES ──────────────────────────────────────────────────────────────────
+-- ── COURSES ───────────────────────────────────────────────────────────[...]
 create table if not exists public.courses (
   id               uuid primary key default gen_random_uuid(),
   user_id          uuid not null references auth.users(id) on delete cascade,
@@ -43,7 +43,7 @@ alter table public.courses enable row level security;
 create policy "users_own_courses" on public.courses
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
--- ── NOTES ────────────────────────────────────────────────────────────────────
+-- ── NOTES ─────────────────────────────────────────────────────────────[...]
 create table if not exists public.notes (
   id          uuid primary key default gen_random_uuid(),
   user_id     uuid not null references auth.users(id) on delete cascade,
@@ -66,7 +66,7 @@ create trigger notes_set_updated_at
   before update on public.notes
   for each row execute procedure public.set_updated_at();
 
--- ── DEADLINES ────────────────────────────────────────────────────────────────
+-- ── DEADLINES ────────────────────────────────────────────────────────────[...]
 create table if not exists public.deadlines (
   id          uuid primary key default gen_random_uuid(),
   user_id     uuid not null references auth.users(id) on delete cascade,
@@ -86,7 +86,7 @@ alter table public.deadlines enable row level security;
 create policy "users_own_deadlines" on public.deadlines
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
--- ── QUIZZES ───────────────────────────────────────────────────────────────────
+-- ── QUIZZES ────────────────────────────────────────────────────────────[...]
 create table if not exists public.quizzes (
   id             uuid primary key default gen_random_uuid(),
   user_id        uuid not null references auth.users(id) on delete cascade,
@@ -104,7 +104,7 @@ alter table public.quizzes enable row level security;
 create policy "users_own_quizzes" on public.quizzes
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
--- ── ASSESSMENTS ───────────────────────────────────────────────────────────────
+-- ── ASSESSMENTS ───────────────────────────────────────────────────────────[...]
 create table if not exists public.assessments (
   id              uuid primary key default gen_random_uuid(),
   user_id         uuid not null references auth.users(id) on delete cascade,
@@ -125,7 +125,7 @@ alter table public.assessments enable row level security;
 create policy "users_own_assessments" on public.assessments
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
--- ── ASSIGNMENTS ───────────────────────────────────────────────────────────────
+-- ── ASSIGNMENTS ───────────────────────────────────────────────────────────[...]
 create table if not exists public.assignments (
   id              uuid primary key default gen_random_uuid(),
   user_id         uuid not null references auth.users(id) on delete cascade,
@@ -146,7 +146,7 @@ alter table public.assignments enable row level security;
 create policy "users_own_assignments" on public.assignments
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
--- ── TIMETABLE SLOTS ───────────────────────────────────────────────────────────
+-- ── TIMETABLE SLOTS ──────────────────────────────────────────────────────────[...]
 create table if not exists public.timetable_slots (
   id          uuid primary key default gen_random_uuid(),
   user_id     uuid not null references auth.users(id) on delete cascade,
@@ -165,7 +165,7 @@ create policy "users_own_timetable" on public.timetable_slots
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 */
-// ─────────────────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────[...]
 
 import { createClient } from '@supabase/supabase-js';
 
@@ -183,5 +183,12 @@ if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
 
 export const supabase = createClient(
   SUPABASE_URL  || '',
-  SUPABASE_ANON_KEY || ''
+  SUPABASE_ANON_KEY || '',
+  {
+    auth: {
+      storage: sessionStorage,  // Use session storage instead of localStorage
+      persistSession: false,     // Don't persist session across page reloads
+      autoRefreshToken: false,   // Prevent automatic token refresh
+    }
+  }
 );
