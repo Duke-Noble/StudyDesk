@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=5, user-scalable=yes" />
     <meta name="theme-color" content="#1E3A5F" />
     <meta name="description" content="StudyDesk — Personal Student Planner for University of Cape Coast" />
     <title>StudyDesk</title>
@@ -11,6 +11,14 @@
       /* Prevent flash of unstyled content */
       html, body { margin: 0; padding: 0; background: #F0F4F8; }
       #root { min-height: 100vh; }
+      
+      /* Force desktop view on mobile devices - minimum width constraint */
+      @media (max-width: 1024px) {
+        html {
+          zoom: 1.25;
+          overflow-x: auto;
+        }
+      }
     </style>
   </head>
   <body>
