@@ -1148,8 +1148,8 @@ function CalendarPage({ courses, deadlines, quizzes, assessments, assignments, r
       let p={title:form.title,course_id:form.course_id||null};
       if(form._t==="deadline")p={...p,due_date:form.due_date,priority:form.priority||"Medium",status:form.status||"Pending"};
       if(form._t==="quiz")p={...p,date_time:form.due_date,status:form.status||"Upcoming",weight:Number(form.weight)||0};
-      if(form._t==="assessment")p={...p,due_date:form.due_date,type:form.atype||"Midterm",weight:Number(form.weight)||0,submission_type:"Online",status:form.status||"Not Started"};
-      if(form._t==="assignment")p={...p,due_date:form.due_date,priority:form.priority||"Medium",status:form.status||"Not Started",submission_type:"Text entry"};
+      if(form._t==="assessment")p={...p,due_date:form.due_date,type:form.atype||"Midterm",weight:Number(form.weight)||0,submission_type:"Online",status:"Not Started"};
+      if(form._t==="assignment")p={...p,due_date:form.due_date,priority:form.priority||"Medium",status:"Not Started",submission_type:"Text entry",description:""};
       if(modal.mode==="add")await db.ins(tbl,p);else await db.upd(tbl,modal.ev.id,p);
       await reloadAll();setModal(null);
     }catch(e){setErr(e.message);}
