@@ -389,7 +389,7 @@ function ColorPicker({ value, onChange }) {
     </div>
   );
 }
-function StatCard({ icon, label, value, accent, sub }) {
+function StatCard({ icon, label, value, accent, sub, onClick }) {
   const a = accent || BRAND.navy;
   return (
     <div className="hl" style={{ background:BRAND.white, borderRadius:16, padding:"20px 18px",
