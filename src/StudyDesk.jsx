@@ -504,7 +504,7 @@ function Dashboard({ courses, deadlines, quizzes, assessments, assignments, note
         <StatCard icon="doc"   label="Pending Tasks"    value={assignments.filter(a=>a.status==="Not Started"||a.status==="In Progress").length} accent="#B7620A"/>
         <StatCard icon="clock" label="Due This Week"    value={upcoming.length} accent="#1A6DBF"/>
         <StatCard icon="star"  label="Upcoming Quizzes" value={quizzes.filter(q=>q.status==="Upcoming").length} accent="#5B2D9E"/>
-        <StatCard icon="alert" label="Overdue"          value={overdue.length} accent={BRAND.danger} sub={overdue.length>0?"Needs attention!":"All clear ✓"}/>
+        <StatCard icon="alert" label="Overdue" value={overdue.length} accent={BRAND.danger} sub={overdue.length>0?"Needs attention!":"All clear ✓"} onClick={()=>onNav("calendar")}/>
       </div>
 
       <div style={{ display:"grid", gridTemplateColumns:"2fr 1fr", gap:20 }}>
