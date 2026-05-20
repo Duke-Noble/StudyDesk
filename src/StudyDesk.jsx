@@ -393,7 +393,6 @@ function StatCard({ icon, label, value, accent, sub, onClick }) {
   const a = accent || BRAND.navy;
   return (
     <div className="hl" onClick={onClick} style={{ background:BRAND.white, cursor:onClick?"pointer":"default", borderRadius:16, padding:"20px 18px",
-  border:`1px solid ${BRAND.line}`, display:"flex", alignItems:"flex-start", gap:14 }}>
       border:`1px solid ${BRAND.line}`, display:"flex", alignItems:"flex-start", gap:14 }}>
       <div style={{ width:48, height:48, borderRadius:13, background:a+"1A",
         display:"flex", alignItems:"center", justifyContent:"center", color:a, flexShrink:0 }}>
