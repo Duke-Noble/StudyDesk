@@ -567,7 +567,6 @@ function Dashboard({ courses, deadlines, quizzes, assessments, assignments, note
           </div>
         </div>
       )}
-    </div>
   );
 }
 
