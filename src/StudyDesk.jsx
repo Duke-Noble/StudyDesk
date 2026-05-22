@@ -357,10 +357,10 @@ function Dashboard({ courses, deadlines, quizzes, assessments, assignments, note
   const studentId = meta.student_id||"";
 
   /* Clickable event row */
-  const EvRow = ({ item, showDate=true }) => {
+  /*const EvRow = ({ item, showDate=true }) => {
     const c = gc(item.course_id);
     const col = c ? PAL[c.color_tag] : PAL.Blue;
-    const od = isOD(item._d);
+    const od = isOD(item._d); */
     return (
       <div className="clk" onClick={()=>onNav(item._nav||"calendar")}
         style={{display:"flex",gap:10,padding:"11px 14px",borderRadius:11,marginBottom:8,background:od?BRAND.dangerBg:col.bg,border:`1px solid ${od?"#F5C0BC":col.border}`,alignItems:"flex-start"}}>
@@ -471,7 +471,7 @@ function Dashboard({ courses, deadlines, quizzes, assessments, assignments, note
             ?<Empty icon="ok" title="No overdue items" sub="Everything is on track ✓"/>
             :<div>
               {overdue.slice(0,6).map(item=>{
-                const c=gc(item.course_id);const col=c?PAL[c.color_tag]:PAL.Blue;
+                //const c=gc(item.course_id);const col=c?PAL[c.color_tag]:PAL.Blue;
                 return(
                   <div key={item.id} className="clk" onClick={()=>onNav("calendar")}
                     style={{display:"flex",gap:8,padding:"10px 12px",borderRadius:10,marginBottom:8,background:"#FEF2F2",border:"1px solid #FECACA",alignItems:"flex-start"}}>
