@@ -380,9 +380,9 @@ function Dashboard({ courses, deadlines, quizzes, assessments, assignments, note
     );
   };
 
-  return (
+  /*return (
     <div className="fi">
-      <DbBanner error={dbError}/>
+      <DbBanner error={dbError}/>*/
 
       {/* ── Header banner ── */}
       <div style={{marginBottom:24,padding:"24px 32px",borderRadius:20,color:"#fff",background:"linear-gradient(135deg,#0F2D52 0%,#1A4173 60%,#0E3A6E 100%)"}}>
@@ -397,7 +397,8 @@ function Dashboard({ courses, deadlines, quizzes, assessments, assignments, note
             {[studentId,programme,programme?"2025/2026 Semester 2":""].filter(Boolean).join(" · ")}
           </p>
         )}
-      </div>
+      </div> 
+      
 
       {/* ── Stat cards — 4 across, all clickable ── */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:16,marginBottom:24}}>
