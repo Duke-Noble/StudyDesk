@@ -1,9 +1,8 @@
 // src/StudyDesk.jsx
-/* eslint-disable no-restricted-globals, react-hooks/exhaustive-deps */
+/* eslint-disable no-restricted-globals, react-hooks/exhaustive-deps, no-undef */
 import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "./supabaseClient";
 
-/* ─── GLOBAL CSS ─────────────────────────────────────────────────────────── */
 const G = `
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Lora:ital,wght@0,600;1,400&display=swap');
   *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
@@ -24,14 +23,13 @@ const G = `
   @keyframes shim{0%{background-position:100% 0}100%{background-position:-100% 0}}
 `;
 
-/* ─── BRAND ──────────────────────────────────────────────────────────────── */
 const BRAND = {
-  navy:"#0F2D52", navyMid:"#1A4173", navyLt:"#EBF1F8",
-  slate:"#4A5568", muted:"#718096", line:"#DCE5EF",
-  bg:"#EEF2F7", white:"#FFFFFF",
-  success:"#0F7B4F", successBg:"#E6F5EF",
-  danger:"#C0392B", dangerBg:"#FBEAE9",
-  warn:"#B7620A", warnBg:"#FEF3E2",
+  navy:"#0F2D52",navyMid:"#1A4173",navyLt:"#EBF1F8",
+  slate:"#4A5568",muted:"#718096",line:"#DCE5EF",
+  bg:"#EEF2F7",white:"#FFFFFF",
+  success:"#0F7B4F",successBg:"#E6F5EF",
+  danger:"#C0392B",dangerBg:"#FBEAE9",
+  warn:"#B7620A",warnBg:"#FEF3E2",
 };
 
 const PAL = {
@@ -67,26 +65,24 @@ for (let h = 6.5; h < 21.5; h += 0.5) {
   TT_SLOTS.push(`${String(hh).padStart(2,"0")}:${mm}`);
 }
 
-/* ─── UTILS ──────────────────────────────────────────────────────────────── */
 const NOW     = () => new Date();
 const isOD    = d => d && new Date(d) < NOW();
-const isSoon  = (d, days=7) => { if(!d) return false; const t=new Date(d); return t>=NOW()&&t<=new Date(+NOW()+days*864e5); };
+const isSoon  = (d,days=7) => { if(!d)return false; const t=new Date(d); return t>=NOW()&&t<=new Date(+NOW()+days*864e5); };
 const fmtDate = d => d ? new Date(d).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}) : "—";
 const fmtDT   = d => d ? new Date(d).toLocaleString("en-GB",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}) : "—";
 const fmtTime = d => d ? new Date(d).toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"}) : "";
-const toInpDT = d => { if(!d) return ""; return new Date(d).toISOString().slice(0,16); };
+const toInpDT = d => { if(!d)return""; return new Date(d).toISOString().slice(0,16); };
 const DAY_NAMES = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 
-/* ─── SUPABASE ───────────────────────────────────────────────────────────── */
 async function getUid() {
   const { data: { session } } = await supabase.auth.getSession();
   return session?.user?.id || null;
 }
 
 function useTable(table, orderCol="created_at") {
-  const [rows,    setRows]    = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [dbError, setDbError] = useState(null);
+  const [rows,setRows]       = useState([]);
+  const [loading,setLoading] = useState(true);
+  const [dbError,setDbError] = useState(null);
   const load = useCallback(async () => {
     setLoading(true); setDbError(null);
     const { data, error } = await supabase.from(table).select("*").order(orderCol,{ascending:true});
@@ -101,7 +97,7 @@ function useTable(table, orderCol="created_at") {
 const db = {
   ins: async (t,p) => {
     const uid = await getUid();
-    const payload = uid ? {...p, user_id:uid} : p;
+    const payload = uid ? {...p,user_id:uid} : p;
     const {data,error} = await supabase.from(t).insert(payload).select().single();
     if (error) throw error;
     return data;
@@ -117,20 +113,20 @@ const db = {
   },
 };
 
-/* ─── DB BANNER ──────────────────────────────────────────────────────────── */
 function DbBanner({ error }) {
   if (!error) return null;
   const ns = error.includes("does not exist")||error.includes("relation")||error.includes("42P01");
   return (
     <div style={{margin:"0 0 20px 0",padding:"14px 18px",borderRadius:12,background:ns?BRAND.warnBg:BRAND.dangerBg,border:`1px solid ${ns?"#F0D085":"#F5C0BC"}`,color:ns?BRAND.warn:BRAND.danger}}>
       <div style={{fontWeight:800,fontSize:14,marginBottom:6}}>{ns?"⚠️ Database tables not set up yet":"❌ Database error"}</div>
-      {ns?<div style={{fontSize:13,lineHeight:1.6}}>Go to <strong>Supabase Dashboard → SQL Editor</strong>, run the SQL from <code>src/supabaseClient.js</code>, then refresh.</div>
-         :<div style={{fontSize:12,fontFamily:"monospace",wordBreak:"break-all"}}>{error}</div>}
+      {ns
+        ?<div style={{fontSize:13,lineHeight:1.6}}>Go to <strong>Supabase Dashboard → SQL Editor</strong>, run the SQL from <code>src/supabaseClient.js</code>, then refresh.</div>
+        :<div style={{fontSize:12,fontFamily:"monospace",wordBreak:"break-all"}}>{error}</div>
+      }
     </div>
   );
 }
 
-/* ─── ICONS ──────────────────────────────────────────────────────────────── */
 const IC = {
   home:"M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6",
   book:"M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253",
@@ -141,26 +137,24 @@ const IC = {
   plus:"M12 4v16m8-8H4",
   edit:"M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z",
   trash:"M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16",
-  cL:"M15 19l-7-7 7-7", cR:"M9 5l7 7-7 7",
-  x:"M6 18L18 6M6 6l12 12", ok:"M5 13l4 4L19 7",
+  cL:"M15 19l-7-7 7-7",cR:"M9 5l7 7-7 7",
+  x:"M6 18L18 6M6 6l12 12",ok:"M5 13l4 4L19 7",
   alert:"M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z",
   clock:"M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z",
   srch:"M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z",
   star:"M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z",
   doc:"M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z",
   out:"M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1",
-  ext:"M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14",
 };
+
 function Ic({ n, size=16, style={} }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" style={style}>
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" style={style}>
       <path d={IC[n]||IC.home}/>
     </svg>
   );
 }
 
-/* ─── ATOMS ──────────────────────────────────────────────────────────────── */
 function Pill({ children, color, bg, border, style={} }) {
   return <span style={{display:"inline-flex",alignItems:"center",padding:"2px 10px",borderRadius:99,fontSize:11,fontWeight:700,color:color||BRAND.slate,background:bg||BRAND.navyLt,border:border?`1px solid ${border}`:undefined,...style}}>{children}</span>;
 }
@@ -168,7 +162,7 @@ function PPill({ p }) { const c=PRIO_C[p]||PRIO_C.Medium; return <Pill color={c.
 function SPill({ s }) { const c=STAT_C[s]||{c:BRAND.slate,b:BRAND.navyLt}; return <Pill color={c.c} bg={c.b}>{s}</Pill>; }
 function CPill({ course }) {
   if (!course) return null;
-  const col=PAL[course.color_tag]||PAL.Blue;
+  const col = PAL[course.color_tag]||PAL.Blue;
   return <Pill color={col.text} bg={col.soft} border={col.border}>{course.course_code}</Pill>;
 }
 function OD() {
@@ -176,9 +170,9 @@ function OD() {
 }
 
 function Btn({ children, variant="primary", size="md", onClick, disabled, style={}, type="button", loading }) {
-  const sz={sm:{fs:12,p:"5px 14px"},md:{fs:13,p:"9px 20px"},lg:{fs:14,p:"12px 26px"}}[size]||{fs:13,p:"9px 20px"};
-  const base={display:"inline-flex",alignItems:"center",gap:6,border:"none",borderRadius:9,cursor:disabled||loading?"not-allowed":"pointer",fontWeight:600,fontFamily:"inherit",transition:"all .17s",opacity:disabled||loading?.55:1,fontSize:sz.fs,padding:sz.p};
-  const V={
+  const sz = {sm:{fs:12,p:"5px 14px"},md:{fs:13,p:"9px 20px"},lg:{fs:14,p:"12px 26px"}}[size]||{fs:13,p:"9px 20px"};
+  const base = {display:"inline-flex",alignItems:"center",gap:6,border:"none",borderRadius:9,cursor:disabled||loading?"not-allowed":"pointer",fontWeight:600,fontFamily:"inherit",transition:"all .17s",opacity:disabled||loading?0.55:1,fontSize:sz.fs,padding:sz.p};
+  const V = {
     primary:  {background:BRAND.navy,    color:"#fff",      boxShadow:"0 2px 10px rgba(15,45,82,.30)"},
     secondary:{background:BRAND.navyLt,  color:BRAND.navy,  border:`1px solid ${BRAND.line}`},
     danger:   {background:BRAND.dangerBg,color:BRAND.danger, border:"1px solid #F5C0BC"},
@@ -195,7 +189,7 @@ function Btn({ children, variant="primary", size="md", onClick, disabled, style=
 }
 
 function Inp({ label, type="text", value, onChange, placeholder, required, min, max, style={} }) {
-  const [f,sF]=useState(false);
+  const [f,sF] = useState(false);
   return (
     <div style={{marginBottom:14}}>
       {label&&<label style={{fontSize:11,fontWeight:700,color:BRAND.slate,display:"block",marginBottom:5,textTransform:"uppercase",letterSpacing:".06em"}}>{label}{required&&<span style={{color:BRAND.danger}}> *</span>}</label>}
@@ -298,7 +292,6 @@ function Skeleton() {
   );
 }
 
-/* ─── NOTE FORM — save at top ────────────────────────────────────────────── */
 function NoteForm({ form, setForm, save, saving, onCancel, err, showCourseSelect, courses }) {
   const f=k=>e=>setForm(p=>({...p,[k]:e.target.value}));
   const BtnRow = () => (
@@ -322,15 +315,11 @@ function NoteForm({ form, setForm, save, saving, onCancel, err, showCourseSelect
   );
 }
 
-/* ─────────────────────────────────────────────────────────────────────────────
-   DASHBOARD — desktop layout, 2×3 grid for upcoming+overdue, clickable cards,
-   today's classes pulled from timetable slots
-───────────────────────────────────────────────────────────────────────────── */
+/* ─── DASHBOARD ──────────────────────────────────────────────────────────── */
 function Dashboard({ courses, deadlines, quizzes, assessments, assignments, notes, slots, user, onNav, onSelectCourse, dbError }) {
   const d = NOW();
-  const todayName = DAY_NAMES[d.getDay()]; // e.g. "Friday"
+  const todayName = DAY_NAMES[d.getDay()];
 
-  /* ── All upcoming items (next 7 days) ── */
   const upcoming = [
     ...deadlines.filter(x=>x.status!=="Done"&&isSoon(x.due_date)).map(x=>({...x,_t:"Deadline",_d:x.due_date,_c:"#C0392B",_nav:"calendar"})),
     ...assignments.filter(x=>x.status!=="Submitted"&&x.status!=="Graded"&&isSoon(x.due_date)).map(x=>({...x,_t:"Assignment",_d:x.due_date,_c:"#B7620A",_nav:"courses"})),
@@ -338,7 +327,6 @@ function Dashboard({ courses, deadlines, quizzes, assessments, assignments, note
     ...assessments.filter(x=>x.status!=="Graded"&&x.status!=="Submitted"&&isSoon(x.due_date)).map(x=>({...x,_t:"Assessment",_d:x.due_date,_c:"#1A6DBF",_nav:"calendar"})),
   ].sort((a,b)=>new Date(a._d)-new Date(b._d));
 
-  /* ── All overdue items ── */
   const overdue = [
     ...deadlines.filter(x=>x.status!=="Done"&&isOD(x.due_date)).map(x=>({...x,_t:"Deadline",_d:x.due_date,_c:"#C0392B",_nav:"calendar"})),
     ...assignments.filter(x=>x.status!=="Submitted"&&x.status!=="Graded"&&isOD(x.due_date)).map(x=>({...x,_t:"Assignment",_d:x.due_date,_c:"#B7620A",_nav:"courses"})),
@@ -346,45 +334,16 @@ function Dashboard({ courses, deadlines, quizzes, assessments, assignments, note
   ].sort((a,b)=>new Date(a._d)-new Date(b._d));
 
   const gc = id => courses.find(c=>c.id===id);
-
-  /* ── Today's classes from timetable slots (matches day name) ── */
-  const todaySlots = slots.filter(s => s.day === todayName)
-    .sort((a,b) => a.start_time.localeCompare(b.start_time));
-
+  const todaySlots = (slots||[]).filter(s=>s.day===todayName).sort((a,b)=>a.start_time.localeCompare(b.start_time));
   const meta = user?.user_metadata||{};
-  const greeting = meta.first_name ? `${meta.first_name}${meta.last_name?" "+meta.last_name:""}` : meta.student_id||user?.email?.split("@")[0]||"Student";
+  const greeting = meta.first_name?`${meta.first_name}${meta.last_name?" "+meta.last_name:""}`:meta.student_id||user?.email?.split("@")[0]||"Student";
   const programme = meta.programme||"";
   const studentId = meta.student_id||"";
 
-  /* Clickable event row */
-  /*const EvRow = ({ item, showDate=true }) => {
-    const c = gc(item.course_id);
-    const col = c ? PAL[c.color_tag] : PAL.Blue;
-    const od = isOD(item._d); */
-    return (
-      <div className="clk" onClick={()=>onNav(item._nav||"calendar")}
-        style={{display:"flex",gap:10,padding:"11px 14px",borderRadius:11,marginBottom:8,background:od?BRAND.dangerBg:col.bg,border:`1px solid ${od?"#F5C0BC":col.border}`,alignItems:"flex-start"}}>
-        <div style={{width:4,borderRadius:2,alignSelf:"stretch",background:item._c,minHeight:32,flexShrink:0}}/>
-        <div style={{flex:1,minWidth:0}}>
-          <div style={{fontWeight:700,fontSize:13,color:BRAND.navy,marginBottom:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.title}</div>
-          <div style={{fontSize:11,color:BRAND.muted,display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
-            {c&&<CPill course={c}/>}
-            <span style={{color:item._c,fontWeight:600}}>{item._t}</span>
-            {showDate&&<span>· {fmtDT(item._d)}</span>}
-            {od&&<OD/>}
-          </div>
-        </div>
-        {item.priority&&<PPill p={item.priority}/>}
-        <Ic n="cR" size={12} style={{color:BRAND.muted,flexShrink:0,marginTop:2}}/>
-      </div>
-    );
-  };
-
-  /*return (
+  return (
     <div className="fi">
-      <DbBanner error={dbError}/>*/
+      <DbBanner error={dbError}/>
 
-      {/* ── Header banner ── */}
       <div style={{marginBottom:24,padding:"24px 32px",borderRadius:20,color:"#fff",background:"linear-gradient(135deg,#0F2D52 0%,#1A4173 60%,#0E3A6E 100%)"}}>
         <div style={{fontSize:12,color:"rgba(255,255,255,.65)",fontWeight:500,marginBottom:6,letterSpacing:".04em"}}>
           {d.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}
@@ -397,15 +356,13 @@ function Dashboard({ courses, deadlines, quizzes, assessments, assignments, note
             {[studentId,programme,programme?"2025/2026 Semester 2":""].filter(Boolean).join(" · ")}
           </p>
         )}
-      </div> 
-      
+      </div>
 
-      {/* ── Stat cards — 4 across, all clickable ── */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:16,marginBottom:24}}>
         {[
           {icon:"doc",   label:"Pending Tasks",    value:assignments.filter(a=>a.status==="Not Started"||a.status==="In Progress").length, accent:"#B7620A", nav:"courses"},
-          {icon:"clock", label:"Due This Week",    value:upcoming.length,                                                                    accent:"#1A6DBF", nav:"calendar"},
-          {icon:"star",  label:"Upcoming Quizzes", value:quizzes.filter(q=>q.status==="Upcoming").length,                                   accent:"#5B2D9E", nav:"calendar"},
+          {icon:"clock", label:"Due This Week",    value:upcoming.length, accent:"#1A6DBF", nav:"calendar"},
+          {icon:"star",  label:"Upcoming Quizzes", value:quizzes.filter(q=>q.status==="Upcoming").length, accent:"#5B2D9E", nav:"calendar"},
           {icon:"alert", label:"Overdue Items",    value:overdue.length, accent:BRAND.danger, sub:overdue.length>0?"Needs attention!":"All clear ✓", nav:"calendar"},
         ].map(card=>(
           <div key={card.label} className="clk hl" onClick={()=>onNav(card.nav)}
@@ -422,11 +379,9 @@ function Dashboard({ courses, deadlines, quizzes, assessments, assignments, note
         ))}
       </div>
 
-      {/* ── Main 3-column desktop grid ── */}
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 320px",gap:20,marginBottom:24}}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 300px",gap:20,marginBottom:24}}>
 
-        {/* Col 1: Upcoming events (2×3 grid of items) */}
-        <div style={{background:BRAND.white,borderRadius:16,border:`1px solid ${BRAND.line}`,padding:"20px",display:"flex",flexDirection:"column"}}>
+        <div style={{background:BRAND.white,borderRadius:16,border:`1px solid ${BRAND.line}`,padding:"20px"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
             <h2 style={{fontSize:14,fontWeight:800,color:BRAND.navy}}>📅 Upcoming — Next 7 Days</h2>
             <Btn variant="ghost" size="sm" onClick={()=>onNav("calendar")} style={{fontSize:11}}><Ic n="cR" size={12}/>View all</Btn>
@@ -434,9 +389,10 @@ function Dashboard({ courses, deadlines, quizzes, assessments, assignments, note
           {upcoming.length===0
             ?<Empty icon="cal" title="Nothing due this week" sub="You're all caught up!"/>
             :<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-              {upcoming.slice(0,6).map(item=>{
-                const c=gc(item.course_id);const col=c?PAL[c.color_tag]:PAL.Blue;
-                return(
+              {upcoming.slice(0,6).map(function(item) {
+                var c = gc(item.course_id);
+                var col = c ? PAL[c.color_tag] : PAL.Blue;
+                return (
                   <div key={item.id} className="clk" onClick={()=>onNav("calendar")}
                     style={{padding:"10px 12px",borderRadius:10,background:col.bg,border:`1px solid ${col.border}`}}>
                     <div style={{display:"flex",alignItems:"flex-start",gap:6}}>
@@ -446,7 +402,7 @@ function Dashboard({ courses, deadlines, quizzes, assessments, assignments, note
                         <div style={{fontSize:10,color:BRAND.muted}}>{fmtDT(item._d)}</div>
                         <div style={{marginTop:4,display:"flex",gap:4,flexWrap:"wrap"}}>
                           {c&&<CPill course={c}/>}
-                          <Pill color={item._c} bg={item._c+"15"}>{item._t}</Pill>
+                          <Pill color={item._c} bg={item._c+"22"}>{item._t}</Pill>
                         </div>
                       </div>
                     </div>
@@ -457,23 +413,22 @@ function Dashboard({ courses, deadlines, quizzes, assessments, assignments, note
           }
           {upcoming.length>6&&(
             <div className="clk" onClick={()=>onNav("calendar")} style={{marginTop:10,textAlign:"center",fontSize:12,color:BRAND.navy,fontWeight:600,padding:"8px",borderRadius:8,background:BRAND.navyLt}}>
-              +{upcoming.length-6} more → view in Calendar
+              +{upcoming.length-6} more → Calendar
             </div>
           )}
         </div>
 
-        {/* Col 2: Overdue items */}
-        <div style={{background:BRAND.white,borderRadius:16,border:`1.5px solid #F5C0BC`,padding:"20px",display:"flex",flexDirection:"column"}}>
+        <div style={{background:BRAND.white,borderRadius:16,border:`1.5px solid #F5C0BC`,padding:"20px"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
             <h2 style={{fontSize:14,fontWeight:800,color:BRAND.danger}}>⚠️ Overdue Items</h2>
-            <Btn variant="ghost" size="sm" onClick={()=>onNav("calendar")} style={{fontSize:11,color:BRAND.danger}}><Ic n="cR" size={12}/>Calendar</Btn>
+            <Btn variant="ghost" size="sm" onClick={()=>onNav("calendar")} style={{fontSize:11,color:BRAND.danger}}><Ic n="cR" size={12}/>View</Btn>
           </div>
           {overdue.length===0
             ?<Empty icon="ok" title="No overdue items" sub="Everything is on track ✓"/>
             :<div>
-              {overdue.slice(0,6).map(item=>{
-                //const c=gc(item.course_id);const col=c?PAL[c.color_tag]:PAL.Blue;
-                return(
+              {overdue.slice(0,6).map(function(item) {
+                var c = gc(item.course_id);
+                return (
                   <div key={item.id} className="clk" onClick={()=>onNav("calendar")}
                     style={{display:"flex",gap:8,padding:"10px 12px",borderRadius:10,marginBottom:8,background:"#FEF2F2",border:"1px solid #FECACA",alignItems:"flex-start"}}>
                     <div style={{width:3,borderRadius:2,alignSelf:"stretch",background:BRAND.danger,minHeight:28,flexShrink:0}}/>
@@ -482,7 +437,7 @@ function Dashboard({ courses, deadlines, quizzes, assessments, assignments, note
                       <div style={{fontSize:10,color:BRAND.danger,fontWeight:600}}>Due {fmtDT(item._d)}</div>
                       <div style={{marginTop:3,display:"flex",gap:4,flexWrap:"wrap"}}>
                         {c&&<CPill course={c}/>}
-                        <Pill color={item._c} bg={item._c+"15"}>{item._t}</Pill>
+                        <Pill color={item._c} bg={item._c+"22"}>{item._t}</Pill>
                       </div>
                     </div>
                     <Ic n="cR" size={11} style={{color:BRAND.danger,flexShrink:0,marginTop:2}}/>
@@ -491,32 +446,28 @@ function Dashboard({ courses, deadlines, quizzes, assessments, assignments, note
               })}
               {overdue.length>6&&(
                 <div className="clk" onClick={()=>onNav("calendar")} style={{textAlign:"center",fontSize:12,color:BRAND.danger,fontWeight:600,padding:"8px",borderRadius:8,background:"#FEF2F2",border:"1px solid #FECACA"}}>
-                  +{overdue.length-6} more overdue items
+                  +{overdue.length-6} more
                 </div>
               )}
             </div>
           }
         </div>
 
-        {/* Col 3: Today's schedule from timetable + recent notes */}
         <div style={{display:"flex",flexDirection:"column",gap:16}}>
-          {/* Today's classes */}
           <div style={{background:"linear-gradient(135deg,#0F2D52,#1A6DBF)",borderRadius:16,padding:"20px",color:"#fff"}}>
-            <div style={{fontSize:11,fontWeight:700,opacity:.75,marginBottom:12,letterSpacing:".08em"}}>
-              TODAY · {todayName.toUpperCase()}
-            </div>
+            <div style={{fontSize:11,fontWeight:700,opacity:.75,marginBottom:12,letterSpacing:".08em"}}>TODAY · {todayName.toUpperCase()}</div>
             {todaySlots.length===0
-              ?<div style={{fontSize:13,opacity:.7,fontStyle:"italic"}}>No classes scheduled today</div>
-              :todaySlots.map(s=>{
-                const c=s.course_id?courses.find(x=>x.id===s.course_id):null;
-                const col=c?PAL[c.color_tag]:null;
-                return(
+              ?<div style={{fontSize:13,opacity:.7,fontStyle:"italic"}}>No classes today</div>
+              :todaySlots.map(function(s) {
+                var c = s.course_id ? courses.find(function(x){return x.id===s.course_id;}) : null;
+                var col = c ? PAL[c.color_tag] : null;
+                return (
                   <div key={s.id} className="clk" onClick={()=>onNav("timetable")}
                     style={{display:"flex",gap:10,marginBottom:10,alignItems:"center",padding:"8px 10px",borderRadius:9,background:"rgba(255,255,255,.12)"}}>
                     <div style={{width:8,height:8,borderRadius:"50%",background:col?col.dot:"#93C5FD",flexShrink:0}}/>
                     <div style={{flex:1}}>
                       <div style={{fontSize:13,fontWeight:700}}>{c?c.course_code:s.label||"Class"}</div>
-                      <div style={{fontSize:11,opacity:.75}}>{s.start_time}{s.end_time&&s.end_time!==s.start_time?` – ${s.end_time}`:""}{s.label&&c?` · ${s.label}`:""}</div>
+                      <div style={{fontSize:11,opacity:.75}}>{s.start_time}{s.end_time&&s.end_time!==s.start_time?` – ${s.end_time}`:""}</div>
                     </div>
                     <Ic n="cR" size={11} style={{opacity:.6}}/>
                   </div>
@@ -525,7 +476,6 @@ function Dashboard({ courses, deadlines, quizzes, assessments, assignments, note
             }
           </div>
 
-          {/* Recent notes */}
           <div style={{background:BRAND.white,borderRadius:16,border:`1px solid ${BRAND.line}`,padding:"18px",flex:1}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
               <h2 style={{fontSize:13,fontWeight:800,color:BRAND.navy}}>📝 Recent Notes</h2>
@@ -533,9 +483,10 @@ function Dashboard({ courses, deadlines, quizzes, assessments, assignments, note
             </div>
             {notes.length===0
               ?<div style={{fontSize:12,color:BRAND.muted}}>No notes yet</div>
-              :[...notes].sort((a,b)=>new Date(b.updated_at)-new Date(a.updated_at)).slice(0,4).map(note=>{
-                const c=gc(note.course_id);const col=c?PAL[c.color_tag]:PAL.Blue;
-                return(
+              :[...notes].sort((a,b)=>new Date(b.updated_at)-new Date(a.updated_at)).slice(0,4).map(function(note) {
+                var c = gc(note.course_id);
+                var col = c ? PAL[c.color_tag] : PAL.Blue;
+                return (
                   <div key={note.id} className="clk" onClick={()=>onNav("notes")}
                     style={{padding:"8px 10px",borderRadius:9,marginBottom:6,background:col.bg,border:`1px solid ${col.border}`}}>
                     <div style={{fontSize:12,fontWeight:700,color:BRAND.navy,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{note.title}</div>
@@ -548,7 +499,6 @@ function Dashboard({ courses, deadlines, quizzes, assessments, assignments, note
         </div>
       </div>
 
-      {/* ── Course grid ── */}
       {courses.length>0&&(
         <div>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
@@ -556,40 +506,41 @@ function Dashboard({ courses, deadlines, quizzes, assessments, assignments, note
             <Btn variant="ghost" size="sm" onClick={()=>onNav("courses")}><Ic n="cR" size={12}/>All courses</Btn>
           </div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
-            {courses.map(c=>{const col=PAL[c.color_tag]||PAL.Blue;return(
-              <div key={c.id} className="clk hl" onClick={()=>onSelectCourse(c)}
-                style={{background:col.bg,border:`1px solid ${col.border}`,borderRadius:13,padding:"15px"}}>
-                <div style={{width:10,height:10,borderRadius:"50%",background:col.accent,marginBottom:9}}/>
-                <div style={{fontSize:13,fontWeight:800,color:BRAND.navy}}>{c.course_code}</div>
-                <div style={{fontSize:11,color:BRAND.muted,marginTop:3,lineHeight:1.45,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{c.course_name}</div>
-              </div>
-            );})}
+            {courses.map(function(c) {
+              var col = PAL[c.color_tag]||PAL.Blue;
+              return (
+                <div key={c.id} className="clk hl" onClick={()=>onSelectCourse(c)}
+                  style={{background:col.bg,border:`1px solid ${col.border}`,borderRadius:13,padding:"15px"}}>
+                  <div style={{width:10,height:10,borderRadius:"50%",background:col.accent,marginBottom:9}}/>
+                  <div style={{fontSize:13,fontWeight:800,color:BRAND.navy}}>{c.course_code}</div>
+                  <div style={{fontSize:11,color:BRAND.muted,marginTop:3,lineHeight:1.45,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{c.course_name}</div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
+    </div>
+  );
+}
 
-/* ─────────────────────────────────────────────────────────────────────────────
-   COURSES PAGE
-───────────────────────────────────────────────────────────────────────────── */
+/* ─── COURSES PAGE ───────────────────────────────────────────────────────── */
 function CoursesPage({ courses, reload, onSelect, dbError }) {
   const [modal,setModal]=useState(null);
   const [form,setForm]=useState({});
   const [saving,setSaving]=useState(false);
   const [err,setErr]=useState("");
   const f=k=>e=>setForm(p=>({...p,[k]:e.target.value}));
-
   const save=async()=>{
     if(!form.course_code||!form.course_name){setErr("Course code and name are required.");return;}
     setSaving(true);setErr("");
     try{
       const p={course_code:form.course_code,course_name:form.course_name,instructor_name:form.instructor_name||null,instructor_email:form.instructor_email||null,room:form.room||null,schedule:form.schedule||null,color_tag:form.color_tag||"Blue"};
-      if(modal==="add")await db.ins("courses",p);
-      else await db.upd("courses",form.id,p);
+      if(modal==="add")await db.ins("courses",p); else await db.upd("courses",form.id,p);
       await reload();setModal(null);
     }catch(e){setErr(e.message);}
     setSaving(false);
   };
-
   const del=async c=>{
     if(!window.confirm(`Delete "${c.course_code}"? All related data will also be deleted.`))return;
     try{
@@ -598,13 +549,11 @@ function CoursesPage({ courses, reload, onSelect, dbError }) {
       await db.del("courses",c.id);await reload();
     }catch(e){window.alert(e.message);}
   };
-
   return(
     <div className="fi">
       <DbBanner error={dbError}/>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:26}}>
-        <div><h1 style={{fontSize:24,fontWeight:800,color:BRAND.navy}}>My Courses</h1>
-          <p style={{fontSize:13,color:BRAND.muted,marginTop:3}}>2025/2026 Second Semester · {courses.length}/8 courses added</p></div>
+        <div><h1 style={{fontSize:24,fontWeight:800,color:BRAND.navy}}>My Courses</h1><p style={{fontSize:13,color:BRAND.muted,marginTop:3}}>2025/2026 Second Semester · {courses.length}/8 courses added</p></div>
         <Btn onClick={()=>{setForm({color_tag:"Blue"});setModal("add");setErr("");}} disabled={courses.length>=8}><Ic n="plus" size={14}/> Add Course</Btn>
       </div>
       {courses.length===0?(
@@ -661,9 +610,7 @@ function CoursesPage({ courses, reload, onSelect, dbError }) {
   );
 }
 
-/* ─────────────────────────────────────────────────────────────────────────────
-   COURSE DETAIL
-───────────────────────────────────────────────────────────────────────────── */
+/* ─── COURSE DETAIL ──────────────────────────────────────────────────────── */
 function CourseDetail({ course, notes, deadlines, quizzes, assessments, assignments, reloadAll, onBack }) {
   const [tab,setTab]=useState("notes");
   const [modal,setModal]=useState(null);
@@ -672,35 +619,29 @@ function CourseDetail({ course, notes, deadlines, quizzes, assessments, assignme
   const [err,setErr]=useState("");
   const col=PAL[course.color_tag]||PAL.Blue;
   const f=k=>e=>setForm(p=>({...p,[k]:e.target.value}));
-
   const cN=notes.filter(n=>n.course_id===course.id);
   const cD=deadlines.filter(d=>d.course_id===course.id);
   const cQ=quizzes.filter(q=>q.course_id===course.id);
   const cA=assessments.filter(a=>a.course_id===course.id);
   const cX=assignments.filter(a=>a.course_id===course.id);
-
   const TBL={note:"notes",deadline:"deadlines",quiz:"quizzes",assessment:"assessments",assignment:"assignments"};
   const open=(type,item)=>{setModal({type,mode:item?"edit":"add",item});setForm(item?{...item}:{});setErr("");};
   const close=()=>setModal(null);
-
   const save=async()=>{
     if(!form.title){setErr("Title is required.");return;}
     setSaving(true);setErr("");
     try{
       let p={...form,course_id:course.id};
       delete p.id;delete p.created_at;delete p.updated_at;delete p.user_id;
-      if(modal.mode==="add")await db.ins(TBL[modal.type],p);
-      else await db.upd(TBL[modal.type],modal.item.id,p);
+      if(modal.mode==="add")await db.ins(TBL[modal.type],p); else await db.upd(TBL[modal.type],modal.item.id,p);
       await reloadAll();close();
     }catch(e){setErr(e.message);}
     setSaving(false);
   };
-
   const del=async(type,id)=>{
     if(!window.confirm("Delete this item?"))return;
     try{await db.del(TBL[type],id);await reloadAll();}catch(e){window.alert(e.message);}
   };
-
   const Row=({item,type,meta})=>{
     const od=isOD(item.due_date||item.date_time);
     return(
@@ -716,9 +657,7 @@ function CourseDetail({ course, notes, deadlines, quizzes, assessments, assignme
       </div>
     );
   };
-
   const TABS=[{k:"notes",l:`📝 Notes (${cN.length})`},{k:"deadlines",l:`⏰ Deadlines (${cD.length})`},{k:"quizzes",l:`📋 Quizzes (${cQ.length})`},{k:"assessments",l:`🏆 Assessments (${cA.length})`},{k:"assignments",l:`📌 Assignments (${cX.length})`}];
-
   return(
     <div className="fi">
       <button onClick={onBack} style={{display:"flex",alignItems:"center",gap:6,background:"none",border:"none",cursor:"pointer",color:BRAND.muted,fontSize:13,fontWeight:600,marginBottom:18,padding:0}}>
@@ -739,7 +678,6 @@ function CourseDetail({ course, notes, deadlines, quizzes, assessments, assignme
       <div style={{display:"flex",gap:4,borderBottom:`2px solid ${BRAND.line}`,marginBottom:22,overflowX:"auto"}}>
         {TABS.map(t=><button key={t.k} onClick={()=>setTab(t.k)} style={{padding:"10px 16px",border:"none",background:"none",cursor:"pointer",fontSize:13,fontWeight:tab===t.k?800:500,color:tab===t.k?BRAND.navy:BRAND.muted,borderBottom:`2px solid ${tab===t.k?col.accent:"transparent"}`,marginBottom:-2,whiteSpace:"nowrap",fontFamily:"inherit",transition:"all .15s"}}>{t.l}</button>)}
       </div>
-
       {tab==="notes"&&(
         <div>
           <div style={{display:"flex",justifyContent:"flex-end",marginBottom:14}}><Btn onClick={()=>open("note",null)}><Ic n="plus" size={14}/> Add Note</Btn></div>
@@ -765,7 +703,6 @@ function CourseDetail({ course, notes, deadlines, quizzes, assessments, assignme
       {tab==="quizzes"&&(<div><div style={{display:"flex",justifyContent:"flex-end",marginBottom:14}}><Btn onClick={()=>open("quiz",null)}><Ic n="plus" size={14}/> Add Quiz</Btn></div>{cQ.length===0?<Empty icon="doc" title="No quizzes" sub="Track upcoming quizzes" action="Add Quiz" onAction={()=>open("quiz",null)}/>:cQ.map(q=><Row key={q.id} item={{...q,due_date:q.date_time}} type="quiz" meta={<><span>📅 {fmtDT(q.date_time)}</span>{q.weight?<Pill>{q.weight}% weight</Pill>:null}{q.score!=null&&q.score!==""?<Pill color={BRAND.success} bg={BRAND.successBg}>Score: {q.score}%</Pill>:null}<SPill s={q.status}/></>}/>)}</div>)}
       {tab==="assessments"&&(<div><div style={{display:"flex",justifyContent:"flex-end",marginBottom:14}}><Btn onClick={()=>open("assessment",null)}><Ic n="plus" size={14}/> Add Assessment</Btn></div>{cA.length===0?<Empty icon="star" title="No assessments" sub="Track midterms, finals & projects" action="Add Assessment" onAction={()=>open("assessment",null)}/>:cA.map(a=><Row key={a.id} item={a} type="assessment" meta={<><Pill>{a.type}</Pill><span>📅 {fmtDT(a.due_date)}</span><Pill>{a.weight||0}%</Pill><Pill>{a.submission_type}</Pill><SPill s={a.status}/></>}/>)}</div>)}
       {tab==="assignments"&&(<div><div style={{display:"flex",justifyContent:"flex-end",marginBottom:14}}><Btn onClick={()=>open("assignment",null)}><Ic n="plus" size={14}/> Add Assignment</Btn></div>{cX.length===0?<Empty icon="doc" title="No assignments" sub="Track your assignments" action="Add Assignment" onAction={()=>open("assignment",null)}/>:cX.map(a=><Row key={a.id} item={a} type="assignment" meta={<><span>📅 {fmtDT(a.due_date)}</span><PPill p={a.priority}/><SPill s={a.status}/><Pill>{a.submission_type}</Pill>{a.points?<Pill>{a.points} pts</Pill>:null}</>}/>)}</div>)}
-
       {modal&&(
         <Modal title={`${modal.mode==="add"?"Add":"Edit"} ${modal.type.charAt(0).toUpperCase()+modal.type.slice(1)}`} onClose={close} wide={modal.type==="note"}>
           {modal.type==="note"&&<NoteForm form={form} setForm={setForm} save={save} saving={saving} onCancel={close} err={err} showCourseSelect={false} courses={[]}/>}
@@ -788,9 +725,7 @@ function CourseDetail({ course, notes, deadlines, quizzes, assessments, assignme
   );
 }
 
-/* ─────────────────────────────────────────────────────────────────────────────
-   NOTES PAGE
-───────────────────────────────────────────────────────────────────────────── */
+/* ─── NOTES PAGE ─────────────────────────────────────────────────────────── */
 function NotesPage({ notes, courses, reload }) {
   const [search,setSearch]=useState("");const [cf,setCf]=useState("");
   const [modal,setModal]=useState(null);const [form,setForm]=useState({});
@@ -802,8 +737,7 @@ function NotesPage({ notes, courses, reload }) {
     setSaving(true);setErr("");
     try{
       const p={title:form.title,course_id:form.course_id,content:form.content||""};
-      if(modal.mode==="add")await db.ins("notes",p);
-      else await db.upd("notes",modal.item.id,p);
+      if(modal.mode==="add")await db.ins("notes",p); else await db.upd("notes",modal.item.id,p);
       await reload();setModal(null);
     }catch(e){setErr(e.message);}
     setSaving(false);
@@ -860,9 +794,7 @@ function NotesPage({ notes, courses, reload }) {
   );
 }
 
-/* ─────────────────────────────────────────────────────────────────────────────
-   CALENDAR PAGE
-───────────────────────────────────────────────────────────────────────────── */
+/* ─── CALENDAR PAGE ──────────────────────────────────────────────────────── */
 function CalendarPage({ courses, deadlines, quizzes, assessments, assignments, reloadAll }) {
   const [date,setDate]=useState(new Date());const [sel,setSel]=useState(null);
   const [modal,setModal]=useState(null);const [form,setForm]=useState({});
@@ -887,7 +819,7 @@ function CalendarPage({ courses, deadlines, quizzes, assessments, assignments, r
       if(form._t==="quiz")p={...p,date_time:form.due_date,status:form.status||"Upcoming",weight:Number(form.weight)||0};
       if(form._t==="assessment")p={...p,due_date:form.due_date,type:form.atype||"Midterm",weight:Number(form.weight)||0,submission_type:"Online",status:"Not Started"};
       if(form._t==="assignment")p={...p,due_date:form.due_date,priority:form.priority||"Medium",status:"Not Started",submission_type:"Text entry",description:""};
-      if(modal.mode==="add")await db.ins(tbl,p);else await db.upd(tbl,modal.ev.id,p);
+      if(modal.mode==="add")await db.ins(tbl,p); else await db.upd(tbl,modal.ev.id,p);
       await reloadAll();setModal(null);
     }catch(e){setErr(e.message);}
     setSaving(false);
@@ -938,10 +870,7 @@ function CalendarPage({ courses, deadlines, quizzes, assessments, assignments, r
             selEvts.map(ev=>{const c=gc(ev.course_id);const col=c?PAL[c.color_tag]:PAL.Blue;return(
               <div key={ev.id} style={{display:"flex",gap:10,padding:"12px 15px",borderRadius:11,marginBottom:9,background:col.bg,border:`1px solid ${col.border}`,alignItems:"center"}}>
                 <div style={{width:4,alignSelf:"stretch",borderRadius:2,background:TC[ev._t],flexShrink:0}}/>
-                <div style={{flex:1}}>
-                  <div style={{fontWeight:700,fontSize:13,color:BRAND.navy}}>{ev.title}</div>
-                  <div style={{fontSize:11,color:BRAND.muted,display:"flex",gap:8,marginTop:3}}>{c&&<CPill course={c}/>}<span style={{color:TC[ev._t],fontWeight:600}}>{ev._t}</span><span>· {fmtTime(ev._d)}</span></div>
-                </div>
+                <div style={{flex:1}}><div style={{fontWeight:700,fontSize:13,color:BRAND.navy}}>{ev.title}</div><div style={{fontSize:11,color:BRAND.muted,display:"flex",gap:8,marginTop:3}}>{c&&<CPill course={c}/>}<span style={{color:TC[ev._t],fontWeight:600}}>{ev._t}</span><span>· {fmtTime(ev._d)}</span></div></div>
                 <div style={{display:"flex",gap:6}}>
                   <Btn variant="secondary" size="sm" onClick={()=>openEdit(ev)}><Ic n="edit" size={12}/></Btn>
                   <Btn variant="danger"    size="sm" onClick={()=>delEvt(ev)}><Ic n="trash" size={12}/></Btn>
@@ -971,9 +900,7 @@ function CalendarPage({ courses, deadlines, quizzes, assessments, assignments, r
   );
 }
 
-/* ─────────────────────────────────────────────────────────────────────────────
-   TIMETABLE PAGE
-───────────────────────────────────────────────────────────────────────────── */
+/* ─── TIMETABLE PAGE ─────────────────────────────────────────────────────── */
 function TimetablePage({ courses, slots, reloadSlots }) {
   const [modal,setModal]=useState(null);const [form,setForm]=useState({});
   const [saving,setSaving]=useState(false);const [err,setErr]=useState("");
@@ -990,8 +917,7 @@ function TimetablePage({ courses, slots, reloadSlots }) {
     setSaving(true);setErr("");
     try{
       const p={day:form.day,start_time:form.start_time,end_time:form.end_time||form.start_time,course_id:form.course_id||null,label:form.label||null,color_tag:form.color_tag||"Blue"};
-      if(modal.mode==="add")await db.ins("timetable_slots",p);
-      else await db.upd("timetable_slots",form.id,p);
+      if(modal.mode==="add")await db.ins("timetable_slots",p); else await db.upd("timetable_slots",form.id,p);
       await reloadSlots();setModal(null);
     }catch(e){setErr(e.message);}
     setSaving(false);
@@ -1003,10 +929,7 @@ function TimetablePage({ courses, slots, reloadSlots }) {
   };
   return(
     <div className="fi">
-      <div style={{marginBottom:22}}>
-        <h1 style={{fontSize:24,fontWeight:800,color:BRAND.navy}}>Timetable</h1>
-        <p style={{fontSize:13,color:BRAND.muted,marginTop:3}}>06:30 – 21:30 · Tap any cell to add or edit a class</p>
-      </div>
+      <div style={{marginBottom:22}}><h1 style={{fontSize:24,fontWeight:800,color:BRAND.navy}}>Timetable</h1><p style={{fontSize:13,color:BRAND.muted,marginTop:3}}>06:30 – 21:30 · Tap any cell to add or edit a class</p></div>
       <div style={{background:BRAND.white,borderRadius:18,border:`1px solid ${BRAND.line}`,overflow:"auto"}}>
         <table style={{borderCollapse:"collapse",width:"100%",minWidth:64+120*7}}>
           <thead>
@@ -1062,9 +985,7 @@ function TimetablePage({ courses, slots, reloadSlots }) {
   );
 }
 
-/* ─────────────────────────────────────────────────────────────────────────────
-   PROFILE PAGE
-───────────────────────────────────────────────────────────────────────────── */
+/* ─── PROFILE PAGE ───────────────────────────────────────────────────────── */
 function ProfilePage({ session, onSignOut }) {
   const meta=session?.user?.user_metadata||{};
   const [form,setForm]=useState({first_name:meta.first_name||"",last_name:meta.last_name||"",student_id:meta.student_id||"",programme:meta.programme||"",level:meta.level||"",email:session?.user?.email||""});
@@ -1111,9 +1032,7 @@ function ProfilePage({ session, onSignOut }) {
   );
 }
 
-/* ─────────────────────────────────────────────────────────────────────────────
-   SIDEBAR
-───────────────────────────────────────────────────────────────────────────── */
+/* ─── SIDEBAR ────────────────────────────────────────────────────────────── */
 function Sidebar({ active, onNav, courses, onSelect, collapsed, setCollapsed }) {
   const NAV=[{k:"dashboard",i:"home",l:"Dashboard"},{k:"courses",i:"book",l:"Courses"},{k:"notes",i:"note",l:"Notes"},{k:"calendar",i:"cal",l:"Calendar"},{k:"timetable",i:"tbl",l:"Timetable"},{k:"profile",i:"user",l:"Profile"}];
   return(
@@ -1157,9 +1076,7 @@ function Sidebar({ active, onNav, courses, onSelect, collapsed, setCollapsed }) 
   );
 }
 
-/* ─────────────────────────────────────────────────────────────────────────────
-   ROOT EXPORT
-───────────────────────────────────────────────────────────────────────────── */
+/* ─── ROOT ───────────────────────────────────────────────────────────────── */
 export default function StudyDesk({ session, onSignOut }) {
   const [view,      setView]      = useState("dashboard");
   const [selCourse, setSelCourse] = useState(null);
@@ -1173,25 +1090,25 @@ export default function StudyDesk({ session, onSignOut }) {
   const {rows:assignments, loading:lX, reload:rX               } = useTable("assignments");
   const {rows:slots,       loading:lS, reload:rS               } = useTable("timetable_slots","start_time");
 
-  const loading=lC||lN||lD||lQ||lA||lX||lS;
+  const loading = lC||lN||lD||lQ||lA||lX||lS;
 
-  const reloadAll=useCallback(async()=>{
+  const reloadAll = useCallback(async()=>{
     await Promise.all([rC(),rN(),rD(),rQ(),rA(),rX(),rS()]);
   },[]);
 
-  const nav=v=>{setView(v);if(v!=="course-detail")setSelCourse(null);};
-  const selectCourse=c=>{setSelCourse(c);setView("course-detail");};
+  const nav          = v => { setView(v); if(v!=="course-detail") setSelCourse(null); };
+  const selectCourse = c => { setSelCourse(c); setView("course-detail"); };
 
-  const renderMain=()=>{
-    if(loading)return <Skeleton/>;
-    switch(view){
+  const renderMain = () => {
+    if (loading) return <Skeleton/>;
+    switch(view) {
       case "dashboard":
         return <Dashboard courses={courses} deadlines={deadlines} quizzes={quizzes} assessments={assessments} assignments={assignments} notes={notes} slots={slots} user={session?.user} onNav={nav} onSelectCourse={selectCourse} dbError={errC}/>;
       case "courses":
         return <CoursesPage courses={courses} reload={rC} onSelect={selectCourse} dbError={errC}/>;
       case "course-detail":
-        if(!selCourse){nav("courses");return null;}
-        const fresh=courses.find(c=>c.id===selCourse.id)||selCourse;
+        if (!selCourse) { nav("courses"); return null; }
+        const fresh = courses.find(c=>c.id===selCourse.id)||selCourse;
         return <CourseDetail course={fresh} notes={notes} deadlines={deadlines} quizzes={quizzes} assessments={assessments} assignments={assignments} reloadAll={reloadAll} onBack={()=>nav("courses")}/>;
       case "notes":
         return <NotesPage notes={notes} courses={courses} reload={rN}/>;
