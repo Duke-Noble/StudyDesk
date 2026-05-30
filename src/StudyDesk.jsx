@@ -357,6 +357,7 @@ function Dashboard({ courses, deadlines, quizzes, assessments, assignments, note
   const studentId = meta.student_id||"";
 
   /* Clickable event row */
+  // Delete the entire EvRow component
   const EvRow = ({ item, showDate=true }) => {
     const c = gc(item.course_id);
     const col = c ? PAL[c.color_tag] : PAL.Blue;
@@ -471,7 +472,7 @@ function Dashboard({ courses, deadlines, quizzes, assessments, assignments, note
             ?<Empty icon="ok" title="No overdue items" sub="Everything is on track ✓"/>
             :<div>
               {overdue.slice(0,6).map(item=>{
-                const c=gc(item.course_id);const col=c?PAL[c.color_tag]:PAL.Blue;
+                const c=gc(item.course_id);
                 return(
                   <div key={item.id} className="clk" onClick={()=>onNav("calendar")}
                     style={{display:"flex",gap:8,padding:"10px 12px",borderRadius:10,marginBottom:8,background:"#FEF2F2",border:"1px solid #FECACA",alignItems:"flex-start"}}>
