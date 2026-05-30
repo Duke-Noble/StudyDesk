@@ -358,7 +358,7 @@ function Dashboard({ courses, deadlines, quizzes, assessments, assignments, note
 
   /* Clickable event row */
   // Delete the entire EvRow component
-  const EvRow = ({ item, showDate=true }) => {
+  /*const EvRow = ({ item, showDate=true }) => {
     const c = gc(item.course_id);
     const col = c ? PAL[c.color_tag] : PAL.Blue;
     const od = isOD(item._d);
@@ -379,7 +379,7 @@ function Dashboard({ courses, deadlines, quizzes, assessments, assignments, note
         <Ic n="cR" size={12} style={{color:BRAND.muted,flexShrink:0,marginTop:2}}/>
       </div>
     );
-  };
+  };*/
 
   return (
     <div className="fi">
