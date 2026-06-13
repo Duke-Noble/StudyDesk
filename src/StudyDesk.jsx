@@ -386,7 +386,7 @@ function Dashboard({courses,deadlines,quizzes,assessments,assignments,slots,user
               ?<Empty icon="cal" title="Nothing due soon" sub="All clear for the next 7 days!"/>
               :upcoming.map(item=>{
                 const c=gc(item.course_id);
-                const col=c?PAL[c.color_tag]:PAL.Blue;
+               // const col=c?PAL[c.color_tag]:PAL.Blue;
                 return(
                   <div key={item.id} className="clk" onClick={()=>onNav("calendar")}
                     style={{padding:"11px 13px",borderRadius:12,marginBottom:8,background:B.card,border:`1px solid ${B.border}`,display:"flex",gap:10,alignItems:"flex-start"}}>
